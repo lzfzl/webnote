@@ -1,5 +1,5 @@
 #include "webserver.h"
-webserver::webserver(){};
+webserver::webserver():tp(MAX_WORKER_NUMBER){};
 void webserver::eventListen(){
     listenfd = socket(AF_INET,SOCK_STREAM,0);
     if(listenfd<0){
@@ -40,15 +40,15 @@ void webserver::dealWithConn(){
     socklen_t client_len = sizeof(client_addr);
     int clientfd = accept(listenfd,(struct sockaddr*)&client_addr,&client_len);
     conn[clientfd] = new http_handler(clientfd,epollfd);
-    conn[clientfd]->process();
+    tp.addTask(conn[clientfd],0);
 }
 
 void webserver::dealWithRead(int clientfd){
-    conn[clientfd]->process();
+    tp.addTask(conn[clientfd],0);
 }
 
 void webserver::dealWithWrite(int clientfd){
-    conn[clientfd]->write();
+    tp.addTask(conn[clientfd],1);
 }
 
 void webserver::eventAccept(){

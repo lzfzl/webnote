@@ -8,5 +8,6 @@ set(SOURCES
     src/main.cpp
     src/webserver.cpp
     src/httphandler.cpp
+    src/workthread.cpp
 )
 add_executable(webserver ${SOURCES})

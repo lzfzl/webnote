@@ -16,7 +16,7 @@
 #include <fcntl.h>
 const int READ_BUFFER_SIZE = 1024;
 const int WRITE_BUFFER_SIZE = 1024;
-const std::string FILE_PATH = "/";
+const std::string FILE_PATH = "/home/lzf/wbserver/data";
 
 
 class http_handler{

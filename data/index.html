@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>我的简单页面</title>
+  <style>
+    body {
+      font-family: "Times New Roman", "SimSun", serif;
+      margin: 0;
+      padding: 0;
+      background: #f6f7fb;
+      color: #222;
+    }
+    .container {
+      max-width: 820px;
+      margin: 48px auto;
+      background: #fff;
+      padding: 24px;
+      border-radius: 12px;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+    }
+    h1 { margin: 0 0 12px; font-size: 28px; }
+    p { line-height: 1.8; margin: 0 0 16px; }
+    button {
+      border: 0;
+      padding: 10px 14px;
+      border-radius: 10px;
+      cursor: pointer;
+      background: #3b82f6;
+      color: #fff;
+      font-size: 14px;
+    }
+    button:hover { opacity: 0.9; }
+    .tip {
+      margin-top: 14px;
+      padding: 10px 12px;
+      background: #eef2ff;
+      border-radius: 10px;
+      display: inline-block;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h1>你好，HTML！</h1>
+    <p>这是一个最基础的网页：包含标题、段落、按钮，以及一点点样式。</p>
+
+    <button id="btn">点我一下</button>
+    <div class="tip" id="msg">（还没点击）</div>
+  </div>
+
+  <script>
+    const btn = document.getElementById("btn");
+    const msg = document.getElementById("msg");
+
+    btn.addEventListener("click", () => {
+      const now = new Date();
+      msg.textContent = "你在 " + now.toLocaleString() + " 点击了按钮！";
+    });
+  </script>
+</body>
+</html>

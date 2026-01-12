@@ -291,7 +291,7 @@ bool http_handler::write(){
     }
 }
 void http_handler::close_conn(){
-
+    
 }
 void http_handler::process(){
     if(!read_once()){
