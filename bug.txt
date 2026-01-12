@@ -1,0 +1,4 @@
+1. httphandler.cpp:line64:
+    try to search \t in text, ignoring ' ', "\t"->" \t".
+2. if(!strcmp(m_method,"GET")&&!strcmp(m_method,"PUT"))
+    when it comes to char* string, != == while compare their address,but for std::string, we can use != ==
