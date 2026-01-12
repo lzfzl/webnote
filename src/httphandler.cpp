@@ -310,11 +310,6 @@ void http_handler::process(){
         close_conn();
     }
     else{
-        epoll_event ev{};
-        ev.events = EPOLLOUT|EPOLLET;
-        ev.data.fd = m_clifd;
-        if (epoll_ctl(m_epollfd, EPOLL_CTL_MOD, m_clifd, &ev) < 0) {
-            perror("epoll_ctl modify");
-        }
+        write();
     }
 }
