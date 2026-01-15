@@ -8,8 +8,9 @@
 #include <unordered_map>
 #include "httphandler.h"
 #include "workthread.h"
+#include "timer.h"
 const int MAX_EVENT_NUMBER = 1024;
-const int MAX_CONNECT_NUMBER = 10;
+const int MAX_CONNECT_NUMBER = 20;
 const int MAX_WORKER_NUMBER = 4;
 class webserver{
 public:
@@ -17,6 +18,7 @@ public:
     void eventListen();
     void eventAccept();
 private:
+    timer timedeal;
     int listenfd;
     int epollfd;
     threadpoll tp;
@@ -25,5 +27,5 @@ private:
     void dealWithRead(int clientfd);
     void dealWithWrite(int clientfd);
 
-    std::unordered_map<int,http_handler*> conn;
+   http_handler conn[MAX_CONNECT_NUMBER];
 };

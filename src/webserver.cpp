@@ -39,16 +39,21 @@ void webserver::dealWithConn(){
     sockaddr_in client_addr{};
     socklen_t client_len = sizeof(client_addr);
     int clientfd = accept(listenfd,(struct sockaddr*)&client_addr,&client_len);
-    conn[clientfd] = new http_handler(clientfd,epollfd);
-    tp.addTask(conn[clientfd],0);
+    conn[clientfd].init(clientfd,epollfd);
+    tp.addTask(&conn[clientfd],0);
+    // timedeal.addConn(&conn[clientfd]);
 }
 
 void webserver::dealWithRead(int clientfd){
-    tp.addTask(conn[clientfd],0);
+    timedeal.adjustConn(&conn[clientfd]);
+    tp.addTask(&conn[clientfd],0);
+    
 }
 
 void webserver::dealWithWrite(int clientfd){
-    tp.addTask(conn[clientfd],1);
+    timedeal.adjustConn(&conn[clientfd]);
+    tp.addTask(&conn[clientfd],1);
+    
 }
 
 void webserver::eventAccept(){

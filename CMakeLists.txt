@@ -4,10 +4,7 @@ set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_BUILD_TYPE Debug) 
 include_directories(include)
 
-set(SOURCES
-    src/main.cpp
-    src/webserver.cpp
-    src/httphandler.cpp
-    src/workthread.cpp
+file(GLOB SOURCES CONFIGURE_DEPENDS
+     "${CMAKE_SOURCE_DIR}/src/*.cpp"
 )
 add_executable(webserver ${SOURCES})

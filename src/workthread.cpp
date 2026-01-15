@@ -16,10 +16,14 @@ threadpoll::threadpoll(int thread_num){
                     task.pop();
                 }
                 if(cur_hh->RorW==0){
-                    cur_hh->process();
+                    if(!cur_hh->process()){
+                        cur_hh->close_conn();
+                    };
                 }
                 else{
-                    cur_hh->write();
+                    if(!cur_hh->write()){
+                        cur_hh->close_conn();
+                    }
                 }
             }
         });

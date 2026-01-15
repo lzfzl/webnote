@@ -21,7 +21,6 @@ const std::string FILE_PATH = "/home/lzf/wbserver/data";
 
 class http_handler{
 public:
-    public:
     int m_epollfd;
     int m_read_idx = 0;
     int m_clifd;
@@ -31,11 +30,10 @@ public:
     enum LINE_STATUS{LINE_OK,LINE_OPEN,LINE_BAD};
     enum HTTP_CODE{BAD_REQUEST,NO_REQUEST,GET_REQUEST,INTERNAL_ERROR,FILE_REQUEST,NO_SOURCE};
     enum CHECK_STATE{CKECK_STATE_REQUESTLINE,CKECK_STATE_HEADER,CHECK_STATE_CONTENT};
-
     CHECK_STATE m_check_state{CKECK_STATE_REQUESTLINE};
     int m_start_line = 0;
     int m_content_length = 0;
-    bool m_keep_alive =false;
+    bool m_keep_alive = false;
     char *m_host;
     std::string m_real_file;
     struct stat m_file_stat;
@@ -48,8 +46,9 @@ public:
     int bytes_have_sent;
     int RorW;
     char *get_line();
-    void init();
+    void init(int clientfd,int epollfd);
     http_handler(int clientfd,int epollfd);
+    http_handler();
     bool read_once();
     LINE_STATUS parse_line();
     HTTP_CODE parse_request_line(char *text);
@@ -67,5 +66,5 @@ public:
     bool process_write(HTTP_CODE ret);
     bool write();
     void close_conn();
-    void process();
+    bool process();
 };

@@ -2,7 +2,9 @@
 char* http_handler::get_line(){
     return m_read_buf + m_start_line; 
 }
-void http_handler::init(){
+void http_handler::init(int clientfd = 0,int epollfd = 0){
+    m_clifd = clientfd;
+    m_epollfd = epollfd;
     m_read_idx = 0;
     m_read_buf[0] = '\0';
     m_check_idx = 0;
@@ -10,7 +12,7 @@ void http_handler::init(){
     m_check_state = CKECK_STATE_REQUESTLINE;
     m_start_line = 0;
     m_content_length = 0;
-    m_keep_alive =false;
+    m_keep_alive = false;
     m_host = nullptr;
     m_real_file = "";
     m_file_stat ={}; 
@@ -21,16 +23,17 @@ void http_handler::init(){
     bytes_to_send = 0;
     bytes_have_sent = 0;
 }
+http_handler::http_handler(){
+    init();
+}
 http_handler::http_handler(int clifd,int epollfd){
-    m_epollfd = epollfd;
-    m_clifd = clifd;
     int flags = fcntl(m_clifd, F_GETFL, 0);
     fcntl(m_clifd,F_SETFL,flags|O_NONBLOCK);
     epoll_event ev{};
     ev.events = EPOLLIN|EPOLLET;
     ev.data.fd = m_clifd;
     epoll_ctl(epollfd,EPOLL_CTL_ADD,m_clifd,&ev);
-    init();
+    init(clifd,epollfd);
 }
 bool http_handler::read_once(){
     while(true){
@@ -147,7 +150,6 @@ http_handler::HTTP_CODE http_handler::do_process(){
     int fd = open(m_real_file.c_str(),O_RDONLY);
     if(fd<0)return NO_SOURCE;
     m_file_address = (char*)mmap(nullptr,m_file_stat.st_size,PROT_READ,MAP_PRIVATE,fd,0);
-    close(fd);
     if(m_file_address==MAP_FAILED){
         m_file_address = nullptr;
         return INTERNAL_ERROR;
@@ -246,7 +248,7 @@ bool http_handler::write(){
         ev.events = EPOLLIN|EPOLLET;
         ev.data.fd = m_clifd;
         epoll_ctl(m_epollfd,EPOLL_CTL_MOD,m_clifd,&ev);
-        init();
+        init(m_clifd,m_epollfd);
         return true;
     }
     while(1){
@@ -259,7 +261,6 @@ bool http_handler::write(){
                     epoll_ctl(m_epollfd,EPOLL_CTL_MOD,m_clifd,&ev);
                 return true;
             }
-            close_map();
             return false;
         }
         bytes_have_sent+=ret;
@@ -280,23 +281,24 @@ bool http_handler::write(){
                 ev.events = EPOLLIN|EPOLLET;
                 ev.data.fd = m_clifd;
                 epoll_ctl(m_epollfd,EPOLL_CTL_MOD,m_clifd,&ev);
-                init();
+                init(m_clifd,m_epollfd);
                 return true;
             }
             else{
-                close_conn();
                 return false;
             }
         }
     }
 }
 void http_handler::close_conn(){
-    
+    close_map();
+    epoll_ctl(m_epollfd,EPOLL_CTL_DEL,m_clifd,0);
+    init();
+    close(m_clifd);
 }
-void http_handler::process(){
+bool http_handler::process(){
     if(!read_once()){
-        close_conn();
-        return;
+        return false;
     }
     auto read_ret = process_read();
     if(read_ret==NO_REQUEST){
@@ -304,12 +306,11 @@ void http_handler::process(){
         ev.events = EPOLLIN|EPOLLET;
         ev.data.fd = m_clifd;
         epoll_ctl(m_epollfd,EPOLL_CTL_MOD,m_clifd,&ev);
-        return;
+        return true;
     } 
     if(!process_write(read_ret)){
-        close_conn();
+        return false;
     }
-    else{
-        write();
-    }
+    if(!write())return false;
+    return true;
 }
