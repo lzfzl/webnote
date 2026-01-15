@@ -1,7 +1,7 @@
 #include <time.h>
 #include <ctime>
 #include "httphandler.h"
-const int LATENT = 60*4;
+const int LATENT = 4;
 class timenode{
 public:
     timenode(http_handler *conn);
@@ -21,6 +21,8 @@ public:
     bool adjustConn(http_handler *conn);
     bool removeConn(http_handler *conn);
     void clear();
+    timenode* findConn(http_handler *conn);
+    bool insertConn(timenode* i);
 private:
     timenode* dummy;
 };

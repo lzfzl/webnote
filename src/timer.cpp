@@ -19,28 +19,37 @@ timer::timer(){
 }
 bool timer::addConn(http_handler *conn){
     timenode* nconn = new timenode(conn);
-    timenode* i= dummy;
-    for (; i->next!=nullptr; i = i->next)
-    {
-       if(i->next->ddl>=nconn->ddl){
-            break;
+    timenode* i= dummy,*insert = dummy;
+    for (;i->next!=nullptr; i = i->next)
+    {   
+        if(i->next->getFd()==conn->m_clifd){
+            insertConn(i->next);
+            delete nconn;
+            return true;
+        }
+        if(i->next->ddl>=nconn->ddl){
+            insert = i;
        }
     }
-    nconn->next = i->next;
-    nconn->pre = i;
-    i->next = nconn;
+    nconn->next = insert->next;
+    nconn->pre = insert;
+    insert->next = nconn;
     return true;
 }
-bool timer::adjustConn(http_handler *conn){
+
+timenode* timer::findConn(http_handler *conn){
     timenode* i;
     for (i = dummy->next; i!=nullptr; i = i->next)
     {
         if(i->getFd()==conn->m_clifd)break;
     }
+    return i;
+}
+bool timer::insertConn(timenode* i){
     auto pre = i->pre;
     i->pre = nullptr;
     pre->next = i->next;
-    i->next->pre = pre;
+    if(i->next)i->next->pre = pre;
     i->next = nullptr;
     i->ddl = std::time(nullptr)+LATENT;
     timenode* j;
@@ -54,6 +63,10 @@ bool timer::adjustConn(http_handler *conn){
     i->pre = j;
     j->next = i;
     return true;
+}
+bool timer::adjustConn(http_handler *conn){
+    timenode* i = findConn(conn);
+    return insertConn(i);
 }
 bool timer::removeConn(http_handler* conn){
     timenode* i;

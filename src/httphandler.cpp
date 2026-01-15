@@ -22,17 +22,19 @@ void http_handler::init(int clientfd = 0,int epollfd = 0){
     m_iov_count = 0;
     bytes_to_send = 0;
     bytes_have_sent = 0;
+    if(m_clifd!=0){
+        int flags = fcntl(m_clifd, F_GETFL, 0);
+        fcntl(m_clifd,F_SETFL,flags|O_NONBLOCK);
+        epoll_event ev{};
+        ev.events = EPOLLIN|EPOLLET;
+        ev.data.fd = m_clifd;
+        epoll_ctl(epollfd,EPOLL_CTL_ADD,m_clifd,&ev);
+    }
 }
 http_handler::http_handler(){
     init();
 }
 http_handler::http_handler(int clifd,int epollfd){
-    int flags = fcntl(m_clifd, F_GETFL, 0);
-    fcntl(m_clifd,F_SETFL,flags|O_NONBLOCK);
-    epoll_event ev{};
-    ev.events = EPOLLIN|EPOLLET;
-    ev.data.fd = m_clifd;
-    epoll_ctl(epollfd,EPOLL_CTL_ADD,m_clifd,&ev);
     init(clifd,epollfd);
 }
 bool http_handler::read_once(){
@@ -82,8 +84,8 @@ http_handler::HTTP_CODE http_handler::parse_request_line(char *text){
     m_method = method;
     m_url = url;
     m_version = version;
-    if(!strcasecmp(m_method,"GET")&&!strcasecmp(m_method,"PUT"))return BAD_REQUEST;
-    if(!strcasecmp(m_version,"HTTP/1.1")&&!strcasecmp(m_version,"HTTP/1.0"))return BAD_REQUEST;
+    if(strcasecmp(m_method,"GET")&&strcasecmp(m_method,"PUT"))return BAD_REQUEST;
+    if(strcasecmp(m_version,"HTTP/1.1")&&strcasecmp(m_version,"HTTP/1.0"))return BAD_REQUEST;
     m_check_state = CKECK_STATE_HEADER;
     return NO_REQUEST;
 }
@@ -182,7 +184,7 @@ bool http_handler::add_content_length(int content_len){
     return add_response("Content-Length:%d\r\n",content_len);
 }
 bool http_handler::add_linger(){
-    return add_response("Connection:%s\r\n","text/html");
+    return add_response("Connection:%s\r\n","keep-alive");
 }
 bool http_handler::add_blank_line(){
     return add_response("%s","\r\n");
@@ -244,12 +246,17 @@ bool http_handler::process_write(HTTP_CODE ret){
 bool http_handler::write(){
     int ret = 0;
     if(bytes_to_send==0){
+    if(m_keep_alive){
         epoll_event ev{};
         ev.events = EPOLLIN|EPOLLET;
         ev.data.fd = m_clifd;
         epoll_ctl(m_epollfd,EPOLL_CTL_MOD,m_clifd,&ev);
         init(m_clifd,m_epollfd);
         return true;
+    }
+    else{
+        return false;
+    }
     }
     while(1){
         ret = writev(m_clifd,iov,m_iov_count);
@@ -293,11 +300,12 @@ bool http_handler::write(){
 void http_handler::close_conn(){
     close_map();
     epoll_ctl(m_epollfd,EPOLL_CTL_DEL,m_clifd,0);
-    init();
     close(m_clifd);
+    init();
 }
 bool http_handler::process(){
     if(!read_once()){
+        printf("read error");
         return false;
     }
     auto read_ret = process_read();
@@ -309,6 +317,7 @@ bool http_handler::process(){
         return true;
     } 
     if(!process_write(read_ret)){
+        printf("write error");
         return false;
     }
     if(!write())return false;

@@ -11,12 +11,13 @@
 #include "timer.h"
 const int MAX_EVENT_NUMBER = 1024;
 const int MAX_CONNECT_NUMBER = 20;
-const int MAX_WORKER_NUMBER = 4;
+const int MAX_WORKER_NUMBER = 2;
 class webserver{
 public:
     webserver();
     void eventListen();
     void eventAccept();
+    ~webserver();
 private:
     timer timedeal;
     int listenfd;
@@ -27,5 +28,5 @@ private:
     void dealWithRead(int clientfd);
     void dealWithWrite(int clientfd);
 
-   http_handler conn[MAX_CONNECT_NUMBER];
+    http_handler conn[MAX_CONNECT_NUMBER];
 };

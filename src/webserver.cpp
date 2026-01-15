@@ -1,5 +1,9 @@
 #include "webserver.h"
 webserver::webserver():tp(MAX_WORKER_NUMBER){};
+webserver::~webserver(){
+    close(listenfd);
+    close(epollfd);
+}
 void webserver::eventListen(){
     listenfd = socket(AF_INET,SOCK_STREAM,0);
     if(listenfd<0){
@@ -25,10 +29,11 @@ void webserver::eventListen(){
         perror("epoll_create");
         return;
         }
-        // set_nonblocking(listenfd);
     epoll_event ev{};
     ev.events = EPOLLIN|EPOLLET;
     ev.data.fd = listenfd;
+    int old = fcntl(listenfd, F_GETFL, 0);
+    fcntl(listenfd, F_SETFL, old | O_NONBLOCK);
     if(epoll_ctl(epollfd,EPOLL_CTL_ADD,listenfd,&ev)<0){
         perror("add listenfd");
         return;
@@ -36,23 +41,31 @@ void webserver::eventListen(){
 }
 
 void webserver::dealWithConn(){
-    sockaddr_in client_addr{};
-    socklen_t client_len = sizeof(client_addr);
-    int clientfd = accept(listenfd,(struct sockaddr*)&client_addr,&client_len);
-    conn[clientfd].init(clientfd,epollfd);
-    tp.addTask(&conn[clientfd],0);
-    // timedeal.addConn(&conn[clientfd]);
+    while(true){
+        sockaddr_in client_addr{};
+        socklen_t client_len = sizeof(client_addr);
+        int clientfd = accept(listenfd,(struct sockaddr*)&client_addr,&client_len);
+        if (clientfd < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) break; 
+            perror("accept");
+            break;
+        }
+        conn[clientfd].init(clientfd,epollfd);
+        timedeal.addConn(conn+clientfd);
+        tp.addTask(conn+clientfd,0);
+    
+}
 }
 
 void webserver::dealWithRead(int clientfd){
-    timedeal.adjustConn(&conn[clientfd]);
-    tp.addTask(&conn[clientfd],0);
+    timedeal.adjustConn(conn+clientfd);
+    tp.addTask(conn+clientfd,0);
     
 }
 
 void webserver::dealWithWrite(int clientfd){
-    timedeal.adjustConn(&conn[clientfd]);
-    tp.addTask(&conn[clientfd],1);
+    timedeal.adjustConn(conn+clientfd);
+    tp.addTask(conn+clientfd,1);
     
 }
 
