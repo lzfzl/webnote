@@ -8,10 +8,10 @@
 #include <stdexcept>
 #include <type_traits>
 #include "httphandler.h"
-const int MAX_CONNECT_NUM = 4;
+const int MAX_WORKER_NUMBER = 4;
 class threadpoll{
 public:
-    threadpoll(int thread_num = MAX_CONNECT_NUM);
+    threadpoll(int thread_num = MAX_WORKER_NUMBER);
     void addTask(http_handler* hh,int RorW);
 private:
     std::queue<http_handler*> task;

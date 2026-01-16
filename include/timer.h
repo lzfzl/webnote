@@ -1,7 +1,7 @@
 #include <time.h>
 #include <ctime>
 #include "httphandler.h"
-const int LATENT = 4;
+const int LATENT = 60*4;
 class timenode{
 public:
     timenode(http_handler *conn);

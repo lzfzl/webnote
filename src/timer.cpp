@@ -60,6 +60,7 @@ bool timer::insertConn(timenode* i){
        }
     }
     i->next = j->next;
+    if(j->next)j->next->pre = i;
     i->pre = j;
     j->next = i;
     return true;
@@ -99,4 +100,6 @@ void timer::clear(){
         }
     }   
 }
+
+
 

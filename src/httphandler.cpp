@@ -100,7 +100,7 @@ http_handler::HTTP_CODE http_handler::parse_headers(char *text){
     if(strncasecmp(text,"Connection:",11)==0){
         text+=11;
         while(*text==' ')text++;
-        if(strcasecmp(text,"keep-alive")==0) m_keep_alive = true;
+        if(strcasecmp(m_version,"HTTP/1.1")==0||strcasecmp(text,"keep-alive")==0) m_keep_alive = true;
     }
     if(strncasecmp(text,"Content-Length:",15)==0){
         text+=15;

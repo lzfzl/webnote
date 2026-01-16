@@ -4,6 +4,28 @@ webserver::~webserver(){
     close(listenfd);
     close(epollfd);
 }
+void webserver::setTimer(){
+    m_timerfd = timerfd_create(CLOCK_REALTIME,0);
+    if(m_timerfd ==-1){
+        perror("timerfd_create");
+        exit(EXIT_FAILURE);
+    }
+    struct itimerspec new_value;
+    new_value.it_value.tv_sec = 1;
+    new_value.it_value.tv_nsec = 0;
+    new_value.it_interval.tv_sec = 30;
+    new_value.it_interval.tv_nsec = 0;
+
+    if(timerfd_settime(m_timerfd,0,&new_value,NULL)==-1){
+        perror("timerfd_setting");
+        exit(EXIT_FAILURE);
+    }
+    struct epoll_event ev{};
+    ev.events = EPOLLIN;
+    ev.data.fd = m_timerfd;
+    epoll_ctl(epollfd,EPOLL_CTL_ADD,m_timerfd,&ev);
+}
+
 void webserver::eventListen(){
     listenfd = socket(AF_INET,SOCK_STREAM,0);
     if(listenfd<0){
@@ -50,10 +72,14 @@ void webserver::dealWithConn(){
             perror("accept");
             break;
         }
-        conn[clientfd].init(clientfd,epollfd);
-        timedeal.addConn(conn+clientfd);
-        tp.addTask(conn+clientfd,0);
-    
+        if(clientfd>=MAX_CONNECT_NUMBER){
+            close(clientfd);
+        }
+        else{
+            conn[clientfd].init(clientfd,epollfd);
+            timedeal.addConn(conn+clientfd);
+            tp.addTask(conn+clientfd,0); 
+        }
 }
 }
 
@@ -81,10 +107,17 @@ void webserver::eventAccept(){
             if(fd==listenfd){
                 dealWithConn();
             }
+            else if(fd==m_timerfd){
+                uint64_t exp;
+                ssize_t s = read(m_timerfd, &exp, sizeof(exp));
+                timedeal.clear();
+            }
             else if(events[i].events & EPOLLIN){
+                if(fd!=conn[fd].m_clifd)continue;
                 dealWithRead(fd);
             }
             else if(events[i].events & EPOLLOUT){
+                if(fd!=conn[fd].m_clifd)continue;
                 dealWithWrite(fd);
             }
         }
