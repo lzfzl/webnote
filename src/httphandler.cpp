@@ -2,7 +2,7 @@
 char* http_handler::get_line(){
     return m_read_buf + m_start_line; 
 }
-void http_handler::init(int clientfd = 0,int epollfd = 0){
+void http_handler::init(int clientfd = -100,int epollfd = -100){
     m_clifd = clientfd;
     m_epollfd = epollfd;
     m_read_idx = 0;
@@ -279,7 +279,7 @@ bool http_handler::write(){
         }
         else{
             iov[0].iov_base = m_write_buf+bytes_have_sent;
-            iov[0].iov_len = iov[0].iov_len-bytes_have_sent;
+            iov[0].iov_len = iov[0].iov_len-ret;
         }
         if(bytes_to_send<=0){
             close_map();
