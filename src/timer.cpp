@@ -17,7 +17,24 @@ void timenode::remove(){
 timer::timer(){
     dummy = new timenode(nullptr);
 }
+bool timer::clearEmpty(){
+    timenode* i = dummy->next; 
+
+    while (i != nullptr) {
+        if (i->getFd() == 0) {
+            timenode* toDelete = i;
+            i->pre->next = i->next;
+            if (i->next != nullptr) {
+                i->next->pre = i->pre;
+            }
+            delete toDelete;
+        }
+        i = i->next;
+    }
+}
+
 bool timer::addConn(http_handler *conn){
+    clearEmpty();
     timenode* nconn = new timenode(conn);
     timenode* i= dummy,*insert = dummy;
     for (;i->next!=nullptr; i = i->next)
@@ -66,8 +83,8 @@ bool timer::insertConn(timenode* i){
     return true;
 }
 bool timer::adjustConn(http_handler *conn){
-    timenode* i = findConn(conn);
-    return insertConn(i);
+    addConn(conn);
+    return true;
 }
 bool timer::removeConn(http_handler* conn){
     timenode* i;
@@ -97,6 +114,7 @@ void timer::clear(){
         else{
             dummy->next = i;
             if(i)i->pre = dummy;
+            break;
         }
     }   
 }

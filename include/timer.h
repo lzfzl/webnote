@@ -23,6 +23,7 @@ public:
     void clear();
     timenode* findConn(http_handler *conn);
     bool insertConn(timenode* i);
+    bool clearEmpty();
 private:
     timenode* dummy;
 };
