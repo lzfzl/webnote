@@ -11,7 +11,7 @@
 #include "workthread.h"
 #include "timer.h"
 const int MAX_EVENT_NUMBER = 1024;
-const int MAX_CONNECT_NUMBER = 100;
+const int MAX_CONNECT_NUMBER = 1024;
 class webserver{
 public:
     webserver();

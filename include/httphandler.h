@@ -14,6 +14,7 @@
 #include <cstdarg>
 #include <sys/uio.h>
 #include <fcntl.h>
+#include <iostream>
 const int READ_BUFFER_SIZE = 1024;
 const int WRITE_BUFFER_SIZE = 1024;
 const std::string FILE_PATH = "/home/lzf/wbserver/data";

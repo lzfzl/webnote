@@ -37,16 +37,20 @@ http_handler::http_handler(){
 http_handler::http_handler(int clifd,int epollfd){
     init(clifd,epollfd);
 }
-bool http_handler::read_once(){
+bool http_handler::read_once(){printf("read 0");
     while(true){
         int n = recv(m_clifd,m_read_buf+m_read_idx,READ_BUFFER_SIZE-m_read_idx,0);
-        if(n==0)return false;
+        if(n==0){
+            // printf("read 0");
+            return false;}
         else if(n>0){
             m_read_idx+=n;
             continue;
         }
         else if(errno==EAGAIN||errno==EWOULDBLOCK) break;
-        else return false;
+        else {
+            // std::cout<<errno;
+            return false;}
     }
     return true;
 }
@@ -305,7 +309,7 @@ void http_handler::close_conn(){
 }
 bool http_handler::process(){
     if(!read_once()){
-        printf("read error");
+        // printf("read error");
         return false;
     }
     auto read_ret = process_read();
