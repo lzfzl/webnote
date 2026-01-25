@@ -1,7 +1,7 @@
 #include "workthread.h"
 
 
-threadpoll::threadpoll(int thread_num){
+threadpoll::threadpoll(sqlPools *sqlpool,int thread_num):m_sqlpool(sqlpool){
     if(thread_num<=0)thread_num=1;
     workers.reserve(thread_num);
     for(int i=0;i<thread_num;i++){
@@ -18,11 +18,29 @@ threadpoll::threadpoll(int thread_num){
                 if(cur_hh->RorW==0){
                     if(!cur_hh->process()){
                         cur_hh->close_conn();
-                    };
+                        continue;
+                    }
+                    if(cur_hh->m_method&&strcasecmp(cur_hh->m_method,"OPTIONS")&&cur_hh->m_url=="/api/login"){
+                        if(!cur_hh->sqlconn)cur_hh->sqlconn = m_sqlpool->getaConnect();
+                        cur_hh->checkLogin(); 
+                    }
+                    else if(cur_hh->m_url=="/api/data"){
+                        if(!cur_hh->sqlconn)cur_hh->sqlconn = m_sqlpool->getaConnect();
+                        // cur_hh->lodaData(); 
+                    }
+                    if(!cur_hh->process_write()){
+                        cur_hh->close_conn();
+                        continue;
+                    }
+                    if(!cur_hh->write()){
+                        cur_hh->close_conn();
+                        continue;
+                    }
                 }
                 else{
                     if(!cur_hh->write()){
                         cur_hh->close_conn();
+                        continue;
                     }
                 }
             }

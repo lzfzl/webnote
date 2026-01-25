@@ -1,5 +1,5 @@
 #include "webserver.h"
-webserver::webserver():tp(MAX_WORKER_NUMBER){};
+webserver::webserver():tp(&sp,MAX_WORKER_NUMBER),sp("localhost","websudo","webtest","plandata",5){};
 webserver::~webserver(){
     close(listenfd);
     close(epollfd);
@@ -83,15 +83,9 @@ void webserver::dealWithConn(){
 }
 }
 
-void webserver::dealWithRead(int clientfd){
+void webserver::dealWith(int clientfd){
     timedeal.adjustConn(conn+clientfd);
     tp.addTask(conn+clientfd,0);
-    
-}
-
-void webserver::dealWithWrite(int clientfd){
-    timedeal.adjustConn(conn+clientfd);
-    tp.addTask(conn+clientfd,1);
     
 }
 
@@ -112,13 +106,9 @@ void webserver::eventAccept(){
                 ssize_t s = read(m_timerfd, &exp, sizeof(exp));
                 timedeal.clear();
             }
-            else if(events[i].events & EPOLLIN){
+            else if(events[i].events & EPOLLIN|EPOLLOUT){
                 if(fd!=conn[fd].m_clifd)continue;
-                dealWithRead(fd);
-            }
-            else if(events[i].events & EPOLLOUT){
-                if(fd!=conn[fd].m_clifd)continue;
-                dealWithWrite(fd);
+                dealWith(fd);
             }
         }
     }

@@ -8,7 +8,7 @@ void http_handler::init(int clientfd = -100,int epollfd = -100){
     m_read_idx = 0;
     m_read_buf[0] = '\0';
     m_check_idx = 0;
-    m_url= nullptr;m_version = nullptr;m_method = nullptr;
+    m_url= "";m_version = nullptr;m_method = nullptr;
     m_check_state = CKECK_STATE_REQUESTLINE;
     m_start_line = 0;
     m_content_length = 0;
@@ -22,6 +22,7 @@ void http_handler::init(int clientfd = -100,int epollfd = -100){
     m_iov_count = 0;
     bytes_to_send = 0;
     bytes_have_sent = 0;
+    m_read_ret = NO_REQUEST;
     if(m_clifd!=0){
         int flags = fcntl(m_clifd, F_GETFL, 0);
         fcntl(m_clifd,F_SETFL,flags|O_NONBLOCK);
@@ -37,11 +38,11 @@ http_handler::http_handler(){
 http_handler::http_handler(int clifd,int epollfd){
     init(clifd,epollfd);
 }
-bool http_handler::read_once(){printf("read 0");
+bool http_handler::read_once(){
     while(true){
         int n = recv(m_clifd,m_read_buf+m_read_idx,READ_BUFFER_SIZE-m_read_idx,0);
+        // std::cout<<n;
         if(n==0){
-            // printf("read 0");
             return false;}
         else if(n>0){
             m_read_idx+=n;
@@ -88,12 +89,13 @@ http_handler::HTTP_CODE http_handler::parse_request_line(char *text){
     m_method = method;
     m_url = url;
     m_version = version;
-    if(strcasecmp(m_method,"GET")&&strcasecmp(m_method,"PUT"))return BAD_REQUEST;
-    if(strcasecmp(m_version,"HTTP/1.1")&&strcasecmp(m_version,"HTTP/1.0"))return BAD_REQUEST;
+    if(strcasecmp(m_method,"GET")&&strcasecmp(m_method,"PUT")&&strcasecmp(m_method,"OPTIONS")&&strcasecmp(m_method,"POST"))return BAD_REQUEST;
+    if(strcasecmp(m_version,"HTTP/1.1")!=0&&strcasecmp(m_version,"HTTP/1.0")!=0)return BAD_REQUEST;
     m_check_state = CKECK_STATE_HEADER;
     return NO_REQUEST;
 }
 http_handler::HTTP_CODE http_handler::parse_headers(char *text){
+    std::cout<<text;
     if(text[0]=='\0'){
         if(m_content_length>0){
             m_check_state = CHECK_STATE_CONTENT;
@@ -104,20 +106,141 @@ http_handler::HTTP_CODE http_handler::parse_headers(char *text){
     if(strncasecmp(text,"Connection:",11)==0){
         text+=11;
         while(*text==' ')text++;
-        if(strcasecmp(m_version,"HTTP/1.1")==0||strcasecmp(text,"keep-alive")==0) m_keep_alive = true;
+        if(!strcasecmp(m_version,"HTTP/1.1")||!strcasecmp(text,"keep-alive")) m_keep_alive = true;
+        if(strcasecmp(text,"close")==0)m_keep_alive = false;
     }
-    if(strncasecmp(text,"Content-Length:",15)==0){
+    else if(strncasecmp(text,"Content-Length:",15)==0){
         text+=15;
         while(*text==' ')text++;
         m_content_length = atoi(text);
     }
-    if(strncasecmp(text,"Host:",5)==0){
+    else if(strncasecmp(text,"Host:",5)==0){
         text+=5;
         while(*text==' ')text++;
         m_host = text;
     }
+    else{// ignore others
+        while (*text != '\0' && *text != '\n') {
+            text++;
+        }
+        if (*text == '\n') {
+            text++;
+        }
+        while (*text == ' ' || *text == '\t' || *text == '\r') {
+            text++;
+        }
+    }    
     return NO_REQUEST;
 }
+void http_handler::parseTable(char *text,int m_content_length){
+    m_post_params.clear();
+    if(m_content_length<=0||text==nullptr){
+        return;
+    }
+    std::string body(text,m_content_length);
+    using namespace nlohmann;
+        try {
+        // 4. 解析 JSON 字符串（异常捕获，防止解析失败崩溃）
+        json json_data = json::parse(body);
+
+        // 5. 遍历 JSON 中的所有键值对（模拟原函数的循环解析逻辑）
+        for (auto it = json_data.begin(); it != json_data.end(); ++it) {
+            std::string key = it.key();          // 获取 JSON 键
+            std::string value;                   // 存储 JSON 值（统一转为字符串）
+
+            // 6. 处理不同类型的 JSON 值（保证兼容数字/布尔/字符串等类型）
+            if (it.value().is_string()) {
+                value = it.value().get<std::string>();
+            } else if (it.value().is_number()) {
+                value = std::to_string(it.value().get<double>()); // 数字转字符串
+            } else if (it.value().is_boolean()) {
+                value = it.value().get<bool>() ? "true" : "false"; // 布尔转字符串
+            } else {
+                continue; // 跳过对象/数组等复杂类型（按需扩展）
+            }
+
+            // 7. URL 解码（和原 parseTable 逻辑一致，可选）
+            key = url_decode(key);
+            value = url_decode(value);
+
+            // 8. 非空键存入 m_post_params（和原函数一致）
+            if (!key.empty()) {
+                m_post_params[key] = value;
+            }
+        }
+    } catch (const json::parse_error& e) {
+        // JSON 格式错误（比如语法错误、括号不匹配），静默返回（和原函数容错逻辑一致）
+        std::cerr << "JSON 解析失败：" << e.what() << " 错误位置：" << e.byte << std::endl;
+        return;
+    } catch (const std::exception& e) {
+        // 其他未知异常，容错处理
+        std::cerr << "解析 JSON 异常：" << e.what() << std::endl;
+        return;
+    }
+    // size_t pos = 0;
+    // size_t len = body.size();
+    // while(pos<len){
+    //     size_t amp_pos = body.find('&',pos);
+    //     std::string param_pair = (amp_pos ==std::string::npos)
+    //     ? body.substr(pos)
+    //     :body.substr(pos,amp_pos-pos);
+    //     pos = (amp_pos == std::string::npos) ? len : amp_pos + 1;
+    //     size_t eq_pos = param_pair.find('=');
+    //     if (eq_pos == std::string::npos) {
+    //         continue; 
+    //     }
+    //     std::string key = param_pair.substr(0, eq_pos);
+    //     std::string value = param_pair.substr(eq_pos + 1);
+    //     key = url_decode(key);
+    //     value = url_decode(value);
+
+    //     if (!key.empty()) {
+    //         m_post_params[key] = value;
+    //     }
+    // }
+}
+std::string http_handler::url_decode(const std::string& encoded){
+    std::string decoded;
+    size_t i = 0;
+    const size_t len = encoded.size();
+    while (i < len) {
+        if (encoded[i] == '+') {
+            // +替换为空格（表单格式的空格编码）
+            decoded += ' ';
+            i++;
+        } else if (encoded[i] == '%' && i + 2 < len) {
+            // %xx格式的十六进制编码（如%E5%BC%A0%E4%B8%89 → 张三）
+            std::string hex = encoded.substr(i + 1, 2);
+            // 校验十六进制字符（0-9, a-f, A-F）
+            if (!isxdigit(hex[0]) || !isxdigit(hex[1])) {
+                decoded += encoded[i];
+                i++;
+                continue;
+            }
+            // 转换为字符
+            char c = static_cast<char>(std::strtol(hex.c_str(), nullptr, 16));
+            decoded += c;
+            i += 3;
+        } else {
+            // 普通字符直接保留
+            decoded += encoded[i];
+            i++;
+        }
+    }
+    return decoded;
+}
+
+
+http_handler::HTTP_CODE http_handler::parse_body(char *text){
+    if(m_read_idx>=m_content_length+m_check_idx){
+        parseTable(text,m_content_length);
+        m_check_idx+=m_content_length;
+        return GET_REQUEST;
+    }
+    else return NO_REQUEST;
+}
+
+
 http_handler::HTTP_CODE http_handler::process_read(){
     LINE_STATUS line_state = LINE_OK;
     HTTP_CODE ret = NO_REQUEST;
@@ -138,6 +261,7 @@ http_handler::HTTP_CODE http_handler::process_read(){
                 else if(ret==GET_REQUEST)return do_process();
                 break;
             case CHECK_STATE_CONTENT:
+                ret = parse_body(text);
                 break;
             default:
                 return INTERNAL_ERROR;
@@ -147,6 +271,9 @@ http_handler::HTTP_CODE http_handler::process_read(){
     return NO_REQUEST;
 }
 http_handler::HTTP_CODE http_handler::do_process(){
+    if(strcasecmp(m_method,"OPTIONS")== 0){
+        return OPTIONS;
+    }
     std::string url = std::string(m_url).empty()?"/":m_url;
     if(url=="/")url = "/index.html";
     m_real_file = FILE_PATH+url;
@@ -168,7 +295,7 @@ void http_handler::close_map(){
         m_file_address = nullptr;
     }
 }
-bool http_handler::add_response(char* fmt,...){
+bool http_handler::add_response(const char* fmt,...){
     if(m_write_idx>=WRITE_BUFFER_SIZE)return false;
     va_list ap;
     va_start(ap,fmt);
@@ -177,6 +304,18 @@ bool http_handler::add_response(char* fmt,...){
     if(n<0||n>=WRITE_BUFFER_SIZE-m_write_idx)return false;
     m_write_idx+=n;
     return true;
+}
+bool http_handler::add_options_header(){
+    bool ret = true;
+    ret &= add_response("Access-Control-Allow-Origin: http://localhost:8080\r\n");
+    ret &= add_response("Access-Control-Allow-Methods: POST, OPTIONS\r\n");
+    ret &= add_response("Access-Control-Allow-Headers: Content-Type\r\n");
+    ret &= add_response("Access-Control-Max-Age: 86400\r\n");
+    ret &= add_response("Content-Length: 0\r\n");
+    ret &= add_response("Connection: close\r\n");
+    ret &= add_response("\r\n");
+    
+    return ret;
 }
 bool http_handler::add_status_line(int status,const char *title){
     return add_response("%s %d %s\r\n","HTTP/1.1",status,title);
@@ -196,7 +335,8 @@ bool http_handler::add_blank_line(){
 bool http_handler::add_content(const char *content){
     return add_response("%s",content);
 }
-bool http_handler::process_write(HTTP_CODE ret){
+bool http_handler::process_write(){
+    HTTP_CODE ret = m_read_ret;
     const char *ok_200 = "OK";
     const char* err_400 = "Bad Request";
     const char* err_403 = "Forbidden";
@@ -241,12 +381,58 @@ bool http_handler::process_write(HTTP_CODE ret){
         add_headers(strlen(body_500));
         if(!add_content(body_500))return false;
     }
+    else if(ret == OPTIONS){
+        add_status_line(200,ok_200);
+        add_options_header();
+    }
     iov[0].iov_base = m_write_buf;
     iov[0].iov_len = m_write_idx;
     m_iov_count = 1;
     bytes_to_send = m_write_idx;
     return true;
 }
+bool http_handler::checkLogin(){
+    std::string input_name, input_passwd;
+    // printf("check login",input_name,input_passwd);
+    auto it_name = m_post_params.find("username");
+    auto it_passwd = m_post_params.find("password");
+    if (it_name == m_post_params.end() || it_passwd == m_post_params.end()) {
+        std::cout <<"用户名或密码参数缺失！" << std::endl;
+        return false;
+    }
+    input_name = it_name->second;
+    input_passwd = it_passwd->second;
+    sql::PreparedStatement* pstmt = nullptr;
+    sql::ResultSet* res = nullptr;
+
+    try {
+        std::string sql = "SELECT passwd FROM user WHERE username = ?";
+        pstmt = sqlconn->prepareStatement(sql);
+        pstmt->setString(1, input_name);
+        res = pstmt->executeQuery();
+
+        if (res->next()) {  
+            std::string db_passwd = res->getString("password");
+            if (db_passwd == input_passwd) {
+                m_url = "/table.html";
+                // duqu shuju 
+            } else {
+                std::cout << "密码错误！" << std::endl;
+                return false;
+            }
+        } else { 
+            std::cout << "用户名不存在！" << std::endl;
+            return false;
+        }
+    } catch (sql::SQLException& e) {
+        std::cout << "数据库操作异常：" << e.what() << std::endl;
+        std::cout << "错误代码：" << e.getErrorCode() << std::endl;
+    }
+    delete res;
+    delete pstmt;
+    return true;
+}
+
 bool http_handler::write(){
     int ret = 0;
     if(bytes_to_send==0){
@@ -309,21 +495,24 @@ void http_handler::close_conn(){
 }
 bool http_handler::process(){
     if(!read_once()){
-        // printf("read error");
+        printf("read error");
         return false;
     }
-    auto read_ret = process_read();
-    if(read_ret==NO_REQUEST){
+    m_read_ret = process_read();
+    if(m_read_ret==NO_REQUEST){
         epoll_event ev{};
         ev.events = EPOLLIN|EPOLLET;
         ev.data.fd = m_clifd;
         epoll_ctl(m_epollfd,EPOLL_CTL_MOD,m_clifd,&ev);
         return true;
-    } 
-    if(!process_write(read_ret)){
-        printf("write error");
-        return false;
     }
-    if(!write())return false;
     return true;
+    // if(!process_write()){
+    // printf("write error");
+    // return false;
+    // }
 }
+//     
+//     if(!write())return false;
+//     return true;
+// }

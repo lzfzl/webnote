@@ -31,6 +31,8 @@ bool timer::clearEmpty(){
         }
         i = i->next;
     }
+    return true;
+
 }
 
 bool timer::addConn(http_handler *conn){

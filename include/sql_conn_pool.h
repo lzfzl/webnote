@@ -1,5 +1,7 @@
+#pragma once
 #include <string>
 #include <mysql_driver.h>
+#include <mysql_connection.h>
 #include <queue>
 #include <mutex>
 #include <condition_variable>

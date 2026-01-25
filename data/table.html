@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>采购计划管理</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: "Microsoft Yahei", sans-serif;
+        }
+        body {
+            background-color: #f5f7fa;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .btn-primary {
+            background-color: #2f54eb;
+            color: white;
+        }
+        .btn-default {
+            background-color: #e5e6eb;
+            color: #333;
+            margin-left: 8px;
+        }
+        .selected-info {
+            color: #666;
+            font-size: 14px;
+            margin-left: 10px;
+        }
+        .search-box {
+            padding: 8px 12px;
+            border: 1px solid #e5e6eb;
+            border-radius: 4px;
+            width: 300px;
+            font-size: 14px;
+        }
+        .table-container {
+            background-color: white;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            overflow: hidden;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 14px 12px;
+            text-align: left;
+            border-bottom: 1px solid #f0f2f5;
+            font-size: 14px;
+        }
+        th {
+            background-color: #fafafa;
+            font-weight: 500;
+            color: #333;
+        }
+        td {
+            color: #666;
+        }
+        .status {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        .status-completed {
+            background-color: #f6ffed;
+            color: #52c41a;
+            border: 1px solid #b7eb8f;
+        }
+        .status-pending {
+            background-color: #f9fafc;
+            color: #86909c;
+            border: 1px solid #e5e6eb;
+        }
+        .tag {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        .tag-receive {
+            background-color: #fff2f0;
+            color: #f5222d;
+            border: 1px solid #ffccc7;
+        }
+        .tag-pay {
+            background-color: #f6ffed;
+            color: #52c41a;
+            border: 1px solid #b7eb8f;
+        }
+        .operation a {
+            color: #2f54eb;
+            text-decoration: none;
+            margin-right: 12px;
+            font-size: 14px;
+        }
+        .operation a:last-child {
+            color: #ff4d4f;
+            margin-right: 0;
+        }
+        .footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 12px;
+            background-color: #fafafa;
+            border-top: 1px solid #f0f2f5;
+            font-size: 14px;
+            color: #666;
+        }
+        .pagination {
+            display: flex;
+            align-items: center;
+        }
+        .page-btn {
+            width: 32px;
+            height: 32px;
+            border: 1px solid #e5e6eb;
+            background-color: white;
+            color: #666;
+            border-radius: 4px;
+            margin: 0 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .page-btn.active {
+            background-color: #2f54eb;
+            color: white;
+            border-color: #2f54eb;
+        }
+        .page-jump {
+            margin-left: 12px;
+        }
+        .page-jump input {
+            width: 40px;
+            height: 32px;
+            border: 1px solid #e5e6eb;
+            border-radius: 4px;
+            text-align: center;
+            margin: 0 4px;
+        }
+        .loading {
+            text-align: center;
+            padding: 50px 0;
+            color: #666;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div>
+                <button class="btn btn-primary">新建计划</button>
+                <button class="btn btn-default">导出计划</button>
+                <span class="selected-info">已选 <span id="selectedCount">0</span> 项</span>
+            </div>
+            <input type="text" class="search-box" placeholder="请输入你需要搜索的内容">
+        </div>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th><input type="checkbox" id="selectAll"></th>
+                        <th>计划名称</th>
+                        <th>计划状态</th>
+                        <th>计划内容</th>
+                        <th>截止日期</th>
+                        <th>计划附件</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    <tr>
+                        <td colspan="7" class="loading">加载中...</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div class="footer">
+                <div id="totalData">共 0 项数据</div>
+                <div class="pagination">
+                    <select class="page-btn" style="width: auto; padding: 0 8px;">
+                        <option>20条/页</option>
+                        <option>50条/页</option>
+                        <option>100条/页</option>
+                    </select>
+                    <span style="margin: 0 8px;">‹</span>
+                    <button class="page-btn active">1</button>
+                    <button class="page-btn">2</button>
+                    <button class="page-btn">3</button>
+                    <button class="page-btn">4</button>
+                    <button class="page-btn">5</button>
+                    <span style="margin: 0 8px;">...</span>
+                    <button class="page-btn">11</button>
+                    <span style="margin: 0 8px;">›</span>
+                    <div class="page-jump">
+                        跳至 <input type="text" value="11"> /20 页
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 1. 模拟从后端获取数据的函数
+        async function fetchData() {
+            // 模拟接口请求延迟
+            await new Promise(resolve => setTimeout(resolve, 800));
+            
+            // 这里替换成你的真实后端接口地址
+            // const response = await fetch('/api/purchase-plans');
+            // const data = await response.json();
+            
+            // 模拟后端返回的数据（实际使用时删除这段，改用上面的真实接口请求）
+            const mockData = {
+                total: 101,
+                list: [
+                    { id: 1, name: "沧州市办公用品采购项目", status: "已完成", content: "BH0038", deadline: "待履行", attachment: "receive" },
+                    { id: 2, name: "红河哈尼族彝族自治州采购项目", status: "待履行", content: "BH0039", deadline: "审核失败", attachment: "receive" },
+                    { id: 3, name: "铜川市办公用品采购项目", status: "待履行", content: "BH0040", deadline: "待审核", attachment: "pay" },
+                    { id: 4, name: "陇南市办公用品采购项目", status: "待履行", content: "BH0041", deadline: "待履行", attachment: "pay" },
+                    { id: 5, name: "新余市办公用品采购项目", status: "待履行", content: "BH0042", deadline: "审核失败", attachment: "pay" },
+                    { id: 6, name: "新余市办公用品采购项目", status: "待履行", content: "BH0042", deadline: "审核失败", attachment: "pay" }
+                ]
+            };
+            
+            return mockData;
+        }
+
+        // 2. 渲染表格数据
+        function renderTable(data) {
+            const tableBody = document.getElementById('tableBody');
+            const totalData = document.getElementById('totalData');
+            
+            // 更新总数据数
+            totalData.textContent = `共 ${data.total} 项数据`;
+            
+            // 清空表格
+            tableBody.innerHTML = '';
+            
+            // 渲染每条数据
+            data.list.forEach(item => {
+                const tr = document.createElement('tr');
+                
+                // 状态样式类
+                const statusClass = item.status === "已完成" ? "status-completed" : "status-pending";
+                // 附件标签样式类和文本
+                const attachmentConfig = item.attachment === "receive" 
+                    ? { class: "tag-receive", text: "↓ 收款" } 
+                    : { class: "tag-pay", text: "↑ 付款" };
+                
+                tr.innerHTML = `
+                    <td><input type="checkbox" class="item-checkbox" data-id="${item.id}"></td>
+                    <td>${item.name}</td>
+                    <td><span class="status ${statusClass}">${item.status}</span></td>
+                    <td>${item.content}</td>
+                    <td>${item.deadline}</td>
+                    <td><span class="tag ${attachmentConfig.class}">${attachmentConfig.text}</span></td>
+                    <td class="operation"><a href="#">管理</a><a href="#">删除</a></td>
+                `;
+                
+                tableBody.appendChild(tr);
+            });
+            
+            // 初始化复选框事件监听
+            initCheckboxEvents();
+        }
+
+        // 3. 初始化复选框相关事件
+        function initCheckboxEvents() {
+            const selectAll = document.getElementById('selectAll');
+            const itemCheckboxes = document.querySelectorAll('.item-checkbox');
+            const selectedCount = document.getElementById('selectedCount');
+            
+            // 全选/取消全选
+            selectAll.addEventListener('change', function() {
+                const isChecked = this.checked;
+                itemCheckboxes.forEach(checkbox => {
+                    checkbox.checked = isChecked;
+                });
+                updateSelectedCount();
+            });
+            
+            // 单个复选框变化
+            itemCheckboxes.forEach(checkbox => {
+                checkbox.addEventListener('change', function() {
+                    updateSelectedCount();
+                    // 更新全选框状态
+                    const allChecked = Array.from(itemCheckboxes).every(cb => cb.checked);
+                    const noneChecked = Array.from(itemCheckboxes).every(cb => !cb.checked);
+                    selectAll.checked = allChecked;
+                    selectAll.indeterminate = !allChecked && !noneChecked;
+                });
+            });
+            
+            // 更新选中数量
+            function updateSelectedCount() {
+                const checkedCount = Array.from(itemCheckboxes).filter(cb => cb.checked).length;
+                selectedCount.textContent = checkedCount;
+            }
+        }
+
+        // 4. 页面加载完成后执行
+        document.addEventListener('DOMContentLoaded', async function() {
+            try {
+                const data = await fetchData();
+                renderTable(data);
+            } catch (error) {
+                const tableBody = document.getElementById('tableBody');
+                tableBody.innerHTML = '<tr><td colspan="7" class="loading">数据加载失败，请刷新重试</td></tr>';
+                console.error('数据加载失败:', error);
+            }
+        });
+    </script>
+</body>
+</html>

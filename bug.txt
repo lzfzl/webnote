@@ -8,3 +8,10 @@
 4. webbench can`t  receive any bytes:
     using a small MAX_CONNECT_NUMBER(4),change it to 100
 5. deal with Bug in doubly linked list insertion
+6. struct problems
+    httphander cannot access timer,so how can it destory its timer?
+    : when a new connection arrives, destory meaningless node first.
+7.  server cannot receive post requests:
+    server doesnt deal with options requests
+8. 代码一直在解析请求头处循环
+    只处理了部分参数(connection:etc.)，没有处理除此之外的任何参数，导致文本解析原地踏步

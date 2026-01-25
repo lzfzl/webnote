@@ -16,26 +16,40 @@
       display: flex;
       min-height: 100vh;
       background-color: #ffffff;
+      position: relative; /* 为绝对定位的背景层提供参考 */
+      overflow: hidden; /* 防止背景图超出视口滚动 */
     }
 
-    /* 左侧登录表单区域 */
+    /* 左上角艺术字图片容器 - 向右移动 */
+    .art-logo {
+      position: fixed;
+      top: 200px;
+      left: 100px; /* 从20px改为60px，向右移动40px，可自行调整 */
+      width: 120px; /* 可根据实际图片调整 */
+      height: 60px; /* 可根据实际图片调整 */
+      z-index: 999;
+    }
+    .art-logo img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    /* 左侧登录表单区域 - 向右移动 */
     .login-form {
       flex: 1;
       display: flex;
       flex-direction: column;
       justify-content: center;
-      padding: 0 80px;
+      padding: 0 80px 0 120px; /* 左内边距从80px改为120px，向右移动40px */
+      padding-top: 80px;
+      z-index: 10; /* 确保表单在背景层上方 */
+      max-width: 500px; /* 限制表单宽度，避免拉伸 */
+      margin-left: 0; /* 可选：如果需要更大幅度移动，可设置正数，如margin-left: 40px; */
     }
 
-    .logo {
-      font-size: 28px;
-      font-weight: bold;
-      color: #5a45ff;
-      margin-bottom: 30px;
-    }
-
-    .logo span {
-      color: #ff4d4f;
+    .form-title-group {
+      margin-bottom: 40px;
     }
 
     .title {
@@ -46,7 +60,7 @@
 
     .subtitle {
       color: #86909c;
-      margin-bottom: 40px;
+      margin-bottom: 10px;
     }
 
     .subtitle a {
@@ -102,47 +116,42 @@
       background-color: #4834d4;
     }
 
-    /* 右侧视觉区域 */
-    .visual-section {
-      flex: 1.2;
-      background: url('https://via.placeholder.com/800x1000?text=Visual+Background') no-repeat center center / cover;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      position: relative;
+    /* 右侧背景图片区域 - 改为绝对定位的装饰层 */
+    .background-img-section {
+      position: absolute; /* 脱离文档流，不影响布局 */
+      top: 0;
+      right: 0;
+      width: 80%; /* 背景图占据右侧55%宽度，可调整 */
+      height: 100vh; /* 占满整个视口高度 */
+      z-index: 1; /* 低于表单的z-index，确保表单在上 */
       overflow: hidden;
     }
-
-    .visual-section::before {
-      content: "";
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background-color: rgba(255, 255, 255, 0.9);
+    .background-img {
+      width: 100%;
+      height: 100%;
     }
-
-    .visual-content {
-      position: relative;
-      z-index: 1;
-      text-align: center;
+    .background-img img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover; /* 保持图片比例并覆盖整个区域 */
     }
 
     /* 顶部功能按钮 */
     .top-controls {
+    background: transparent;
       position: fixed;
       top: 20px;
       right: 20px;
       display: flex;
       gap: 16px;
+      z-index: 999; /* 确保按钮在最上层 */
     }
 
     .top-controls button {
       width: 32px;
       height: 32px;
       border: none;
-      background: rgba(255, 255, 255, 0.8);
+      background: transparent;
       border-radius: 4px;
       cursor: pointer;
       font-size: 16px;
@@ -153,6 +162,11 @@
   </style>
 </head>
 <body>
+  <!-- 左上角艺术字图片 - 专门预留的标签 -->
+  <div class="art-logo">
+    <img src="/home/lzf/wbserver/data/label.png" alt="Task Plan 艺术字logo">
+  </div>
+
   <!-- 顶部功能按钮 -->
   <div class="top-controls">
     <button title="语言切换">🌐</button>
@@ -163,15 +177,14 @@
 
   <!-- 左侧登录表单 -->
   <div class="login-form">
-    <div class="logo">
-      <span>T</span>ask<span>P</span>lan
+    <div class="form-title-group">
+      <h1 class="title">登录到<br>Task Plan</h1>
+      <p class="subtitle">没有账号吗？<a href="#">注册新账号</a></p>
     </div>
-    <h1 class="title">登录到<br>Task Plan</h1>
-    <p class="subtitle">没有账号吗？<a href="#">注册新账号</a></p>
 
     <form id="loginForm">
       <div class="form-group">
-        <input type="text" id="username" placeholder="请输入内容" required>
+        <input type="text" id="username" placeholder="请输入账号" required>
       </div>
       <div class="form-group">
         <input type="password" id="password" placeholder="请输入密码" required>
@@ -186,10 +199,10 @@
     </form>
   </div>
 
-  <!-- 右侧视觉区域 -->
-  <div class="visual-section">
-    <div class="visual-content">
-      <img src="https://via.placeholder.com/600x400?text=3D+UI+Elements" alt="3D视觉元素">
+  <!-- 右侧背景图片区域 - 绝对定位的装饰层 -->
+  <div class="background-img-section">
+    <div class="background-img">
+      <img src="/home/lzf/wbserver/data/bg.png" alt="登录页面背景图">
     </div>
   </div>
 
@@ -203,7 +216,7 @@
       const password = document.getElementById('password').value;
 
       // 发送POST请求
-      fetch('/api/login', {
+      fetch('http://localhost:8080/api/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -214,7 +227,6 @@
       .then(data => {
         if (data.success) {
           alert('登录成功！');
-          // 登录成功后的跳转逻辑
           window.location.href = '/dashboard';
         } else {
           alert('登录失败：' + data.message);

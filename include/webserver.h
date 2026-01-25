@@ -10,6 +10,7 @@
 #include "httphandler.h"
 #include "workthread.h"
 #include "timer.h"
+#include "sql_conn_pool.h"
 const int MAX_EVENT_NUMBER = 1024;
 const int MAX_CONNECT_NUMBER = 1024;
 class webserver{
@@ -20,6 +21,7 @@ public:
     void eventAccept();
     ~webserver();
 private:
+    sqlPools sp;
     timer timedeal;
     int listenfd;
     int epollfd;
@@ -27,7 +29,6 @@ private:
     threadpoll tp;
     struct epoll_event events[MAX_EVENT_NUMBER];
     void dealWithConn();
-    void dealWithRead(int clientfd);
-    void dealWithWrite(int clientfd);
+    void dealWith(int clientfd);
     http_handler conn[MAX_CONNECT_NUMBER];
 };

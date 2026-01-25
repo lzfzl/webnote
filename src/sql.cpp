@@ -1,6 +1,6 @@
-#include "sql.h"
+#include "sql_conn_pool.h"
 
-sqlPools::sqlPools(const std::string& host,const std::string& user,const std::string& passwd,const std::string& db,int poolsize = 10):
+sqlPools::sqlPools(const std::string& host,const std::string& user,const std::string& passwd,const std::string& db,int poolsize):
     host_(host),
     user_(user),
     password_(passwd),
