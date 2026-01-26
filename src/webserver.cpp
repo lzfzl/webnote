@@ -91,7 +91,7 @@ void webserver::dealWith(int clientfd){
 
 void webserver::eventAccept(){
     while(true){
-        int number = epoll_wait(epollfd,events,MAX_EVENT_NUMBER,-1);
+        int number = epoll_wait(epollfd,events,MAX_EVENT_NUMBER,10);
         if(number<0 && errno!=EINTR){
             perror("epoll_wait");
             return;
@@ -106,7 +106,7 @@ void webserver::eventAccept(){
                 ssize_t s = read(m_timerfd, &exp, sizeof(exp));
                 timedeal.clear();
             }
-            else if(events[i].events & EPOLLIN|EPOLLOUT){
+            else if(events[i].events & (EPOLLIN|EPOLLOUT)){
                 if(fd!=conn[fd].m_clifd)continue;
                 dealWith(fd);
             }

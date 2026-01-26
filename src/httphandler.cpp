@@ -262,6 +262,7 @@ http_handler::HTTP_CODE http_handler::process_read(){
                 break;
             case CHECK_STATE_CONTENT:
                 ret = parse_body(text);
+                if(ret==GET_REQUEST)return do_process();
                 break;
             default:
                 return INTERNAL_ERROR;
@@ -276,6 +277,23 @@ http_handler::HTTP_CODE http_handler::do_process(){
     }
     std::string url = std::string(m_url).empty()?"/":m_url;
     if(url=="/")url = "/index.html";
+    else if(url=="/api/loginbutton"){
+        if(strcasecmp(m_method,"OPTIONS")== 0)return OPTIONS;
+        if(strcasecmp(m_method,"POST")== 0){
+            if(checkLogin()){
+                return SUCCESSLOGIN;
+            }
+            else{
+                return WRONGLOGIN;
+            }
+        }
+    }
+    else if(url =="/api/alterbutton"){
+
+    }
+    else if(url =="/api/downfile"){
+
+    }
     m_real_file = FILE_PATH+url;
     if(stat(m_real_file.c_str(),&m_file_stat)<0){
         return NO_SOURCE;
@@ -348,6 +366,8 @@ bool http_handler::process_write(){
     const char* body_403 = "<html><body><h1>403 Forbidden</h1></body></html>";
     const char* body_404 = "<html><body><h1>404 Not Found</h1></body></html>";
     const char* body_500 = "<html><body><h1>500 Internal Error</h1></body></html>";
+    const char* body_wronglogin = "{\"success\":false,\"message\":\"用户名或密码错误，请重新输入\"}";
+    const char* body_successlogin = "{\"success\":true,\"message\":\"\"}";
     if(ret==FILE_REQUEST){
         add_status_line(200,ok_200);
         if(m_file_stat.st_size!=0){
@@ -383,7 +403,18 @@ bool http_handler::process_write(){
     }
     else if(ret == OPTIONS){
         add_status_line(200,ok_200);
-        add_options_header();
+        
+        if(!add_options_header())return false;
+    }
+    else if(ret == WRONGLOGIN){
+        add_status_line(200,ok_200);
+        add_headers(strlen(body_wronglogin));
+        add_response(body_wronglogin);
+    }
+    else if(ret == SUCCESSLOGIN){
+        add_status_line(200,ok_200);
+        add_headers(strlen(body_successlogin));
+        add_response(body_successlogin);
     }
     iov[0].iov_base = m_write_buf;
     iov[0].iov_len = m_write_idx;
@@ -406,7 +437,7 @@ bool http_handler::checkLogin(){
     sql::ResultSet* res = nullptr;
 
     try {
-        std::string sql = "SELECT passwd FROM user WHERE username = ?";
+        std::string sql = "SELECT password FROM user WHERE username = ?";
         pstmt = sqlconn->prepareStatement(sql);
         pstmt->setString(1, input_name);
         res = pstmt->executeQuery();
@@ -414,7 +445,7 @@ bool http_handler::checkLogin(){
         if (res->next()) {  
             std::string db_passwd = res->getString("password");
             if (db_passwd == input_passwd) {
-                m_url = "/table.html";
+                return true;
                 // duqu shuju 
             } else {
                 std::cout << "密码错误！" << std::endl;
@@ -430,7 +461,7 @@ bool http_handler::checkLogin(){
     }
     delete res;
     delete pstmt;
-    return true;
+    return false;
 }
 
 bool http_handler::write(){
@@ -506,11 +537,14 @@ bool http_handler::process(){
         epoll_ctl(m_epollfd,EPOLL_CTL_MOD,m_clifd,&ev);
         return true;
     }
+    if(!process_write()){
+        return false;
+    }
+    if(!write()){
+        return false;
+    }
+
     return true;
-    // if(!process_write()){
-    // printf("write error");
-    // return false;
-    // }
 }
 //     
 //     if(!write())return false;

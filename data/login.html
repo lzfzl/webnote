@@ -23,7 +23,7 @@
     /* 左上角艺术字图片容器 - 向右移动 */
     .art-logo {
       position: fixed;
-      top: 200px;
+      top: 150px;
       left: 100px; /* 从20px改为60px，向右移动40px，可自行调整 */
       width: 120px; /* 可根据实际图片调整 */
       height: 60px; /* 可根据实际图片调整 */
@@ -164,7 +164,7 @@
 <body>
   <!-- 左上角艺术字图片 - 专门预留的标签 -->
   <div class="art-logo">
-    <img src="/home/lzf/wbserver/data/label.png" alt="Task Plan 艺术字logo">
+    <img src="./label.png" alt="Task Plan 艺术字logo">
   </div>
 
   <!-- 顶部功能按钮 -->
@@ -202,7 +202,7 @@
   <!-- 右侧背景图片区域 - 绝对定位的装饰层 -->
   <div class="background-img-section">
     <div class="background-img">
-      <img src="/home/lzf/wbserver/data/bg.png" alt="登录页面背景图">
+      <img src="./bg.png" alt="登录页面背景图">
     </div>
   </div>
 
@@ -216,7 +216,7 @@
       const password = document.getElementById('password').value;
 
       // 发送POST请求
-      fetch('http://localhost:8080/api/login', {
+      fetch('./api/loginbutton', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -227,7 +227,7 @@
       .then(data => {
         if (data.success) {
           alert('登录成功！');
-          window.location.href = '/dashboard';
+          window.location.href = './table.html'; 
         } else {
           alert('登录失败：' + data.message);
         }

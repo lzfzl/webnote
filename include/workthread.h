@@ -17,6 +17,7 @@ public:
     void addTask(http_handler* hh,int RorW);
 private:
     std::queue<http_handler*> task;
+    std::vector<http_handler*> denug;
     std::mutex m_mutex;
     std::condition_variable m_cv;
     std::vector<std::thread> workers;
