@@ -95,7 +95,7 @@ http_handler::HTTP_CODE http_handler::parse_request_line(char *text){
     return NO_REQUEST;
 }
 http_handler::HTTP_CODE http_handler::parse_headers(char *text){
-    std::cout<<text;
+    // std::cout<<text;
     if(text[0]=='\0'){
         if(m_content_length>0){
             m_check_state = CHECK_STATE_CONTENT;
@@ -277,6 +277,17 @@ http_handler::HTTP_CODE http_handler::do_process(){
     }
     std::string url = std::string(m_url).empty()?"/":m_url;
     if(url=="/")url = "/index.html";
+    else if(url=="/api/signup"){
+        if(strcasecmp(m_method,"OPTIONS")== 0)return OPTIONS;
+        if(strcasecmp(m_method,"POST")== 0){
+            if(signUp()){
+                return SUCCESSSIGNUP;
+            }
+            else{
+                return WRONGSIGNUP;
+            }
+        }
+    }
     else if(url=="/api/loginbutton"){
         if(strcasecmp(m_method,"OPTIONS")== 0)return OPTIONS;
         if(strcasecmp(m_method,"POST")== 0){
@@ -368,6 +379,8 @@ bool http_handler::process_write(){
     const char* body_500 = "<html><body><h1>500 Internal Error</h1></body></html>";
     const char* body_wronglogin = "{\"success\":false,\"message\":\"用户名或密码错误，请重新输入\"}";
     const char* body_successlogin = "{\"success\":true,\"message\":\"\"}";
+    const char* body_wrongsignup = "{\"success\":false,\"message\":\"used name\"}";
+    const char* body_successsignup = "{\"success\":true,\"message\":\"\"}";
     if(ret==FILE_REQUEST){
         add_status_line(200,ok_200);
         if(m_file_stat.st_size!=0){
@@ -416,12 +429,68 @@ bool http_handler::process_write(){
         add_headers(strlen(body_successlogin));
         add_response(body_successlogin);
     }
+    else if(ret == SUCCESSSIGNUP){
+        add_status_line(200,ok_200);
+        add_headers(strlen(body_successsignup));
+        add_response(body_successsignup);
+    }
+    else if(ret == WRONGSIGNUP){
+        add_status_line(200,ok_200);
+        add_headers(strlen(body_wrongsignup));
+        add_response(body_wrongsignup);
+    }
     iov[0].iov_base = m_write_buf;
     iov[0].iov_len = m_write_idx;
     m_iov_count = 1;
     bytes_to_send = m_write_idx;
     return true;
 }
+bool http_handler::signUp(){
+    std::string input_name, input_passwd;
+    // printf("signUp",input_name,input_passwd);
+    auto it_name = m_post_params.find("username");
+    auto it_passwd = m_post_params.find("password");
+    if (it_name == m_post_params.end() || it_passwd == m_post_params.end()) {
+        std::cout <<"用户名或密码参数缺失！" << std::endl;
+        return false;
+    }
+    input_name = it_name->second;
+    input_passwd = it_passwd->second;
+    sql::PreparedStatement* check_pstmt = nullptr,*signup_pstmt = nullptr;
+    sql::ResultSet* check_res = nullptr;
+
+    try {
+        std::string check_sql = "SELECT username FROM user WHERE username = ?";
+        check_pstmt = sqlconn->prepareStatement(check_sql);
+        check_pstmt->setString(1, input_name);
+        check_res = check_pstmt->executeQuery();
+
+        if (check_res->next()) {  
+                return false;
+        } else { 
+            std::string signup_sql = "INSERT INTO user (username, password, create_time, update_time) VALUES (?, ?, NOW(), NOW())";
+            signup_pstmt = sqlconn->prepareStatement(signup_sql);
+            signup_pstmt->setString(1, input_name);
+            signup_pstmt->setString(2, input_passwd);
+            int affected_rows = signup_pstmt->executeUpdate();
+            if (affected_rows > 0) {
+                std::cout << "用户注册成功！用户名：" << input_name << std::endl;
+                return true;
+            } else {
+                std::cout << "用户注册失败：数据库插入无影响行！" << std::endl;
+                return false;
+            }
+        }
+    } catch (sql::SQLException& e) {
+        std::cout << "数据库操作异常：" << e.what() << std::endl;
+        std::cout << "错误代码：" << e.getErrorCode() << std::endl;
+    }
+    delete check_res;
+    delete check_pstmt;
+    delete signup_pstmt;
+    return false;
+}
+
 bool http_handler::checkLogin(){
     std::string input_name, input_passwd;
     // printf("check login",input_name,input_passwd);

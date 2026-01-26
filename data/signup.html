@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Task Plan - 欢迎</title>
+  <title>Task Plan - 注册</title>
   <style>
     * {
       margin: 0;
@@ -23,7 +23,7 @@
     /* 左上角艺术字图片容器 */
     .art-logo {
       position: fixed;
-      top: 200px;
+      top: 120px;
       left: 100px;
       width: 120px;
       height: 60px;
@@ -35,7 +35,7 @@
       object-fit: contain;
     }
 
-    /* 左侧内容区域 - 调整为居中展示 */
+    /* 左侧注册表单区域 */
     .login-form {
       flex: 1;
       display: flex;
@@ -49,8 +49,7 @@
     }
 
     .form-title-group {
-      margin-bottom: 60px; /* 增加间距，优化视觉 */
-      width: 100%; /* 确保文本区域占满容器宽度 */
+      margin-bottom: 40px;
     }
 
     .title {
@@ -69,13 +68,40 @@
       text-decoration: none;
     }
 
-    /* 开始使用按钮样式 - 与文本区域宽度对齐 */
-    .start-btn-container {
-      width: 100%; /* 与上方文本区域同宽 */
+    .form-group {
+      margin-bottom: 20px;
     }
 
-    .start-btn {
-      width: 100%; /* 按钮宽度铺满容器，与文本区域对齐 */
+    .form-group input {
+      width: 100%;
+      height: 44px;
+      padding: 0 12px;
+      border: 1px solid #dcdfe6;
+      border-radius: 4px;
+      font-size: 14px;
+      transition: border-color 0.3s;
+    }
+
+    .form-group input:focus {
+      outline: none;
+      border-color: #5a45ff;
+    }
+
+    .form-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 30px;
+      font-size: 14px;
+    }
+
+    .form-footer a {
+      color: #5a45ff;
+      text-decoration: none;
+    }
+
+    .register-btn {
+      width: 100%;
       height: 44px;
       background-color: #5a45ff;
       color: #fff;
@@ -86,7 +112,7 @@
       transition: background-color 0.3s;
     }
 
-    .start-btn:hover {
+    .register-btn:hover {
       background-color: #4834d4;
     }
 
@@ -149,30 +175,76 @@
     <button title="设置">⚙️</button>
   </div>
 
-  <!-- 左侧内容区域 - 移除表单，添加开始使用按钮 -->
+  <!-- 左侧注册表单 -->
   <div class="login-form">
     <div class="form-title-group">
-      <h1 class="title">欢迎使用<br>Task Plan</h1>
-      <p class="subtitle">高效的任务管理工具，让工作更有序</p>
+      <h1 class="title">注册<br>Task Plan</h1>
+      <p class="subtitle">已有账号？<a href="./login.html">去登录</a></p>
     </div>
 
-    <!-- 开始使用按钮 - 与文本区域宽度对齐 -->
-    <div class="start-btn-container">
-      <button class="start-btn" id="startBtn">开始使用</button>
-    </div>
+    <form id="registerForm">
+      <div class="form-group">
+        <input type="text" id="username" placeholder="请输入账号" required>
+      </div>
+      <div class="form-group">
+        <input type="password" id="password" placeholder="请输入密码" required>
+      </div>
+      <div class="form-group">
+        <input type="password" id="confirmPassword" placeholder="请确认密码" required>
+      </div>
+      <div class="form-footer">
+        <label>
+          <input type="checkbox" required> 同意用户协议和隐私政策
+        </label>
+      </div>
+      <button type="submit" class="register-btn">注册</button>
+    </form>
   </div>
 
   <!-- 右侧背景图片区域 -->
   <div class="background-img-section">
     <div class="background-img">
-      <img src="./bg.png" alt="欢迎页面背景图">
+      <img src="./bg.png" alt="注册页面背景图">
     </div>
   </div>
 
   <script>
-    // 监听开始使用按钮点击事件，跳转到登录页面
-    document.getElementById('startBtn').addEventListener('click', function() {
-      window.location.href = './login.html';
+    // 监听表单提交事件
+    document.getElementById('registerForm').addEventListener('submit', function(e) {
+      e.preventDefault(); // 阻止默认表单提交
+
+      // 获取输入值
+      const username = document.getElementById('username').value;
+      const password = document.getElementById('password').value;
+      const confirmPassword = document.getElementById('confirmPassword').value;
+
+      // 前端密码验证
+      if (password !== confirmPassword) {
+        alert('两次输入的密码不一致！');
+        return;
+      }
+
+      // 发送POST请求到注册接口
+      fetch('./api/signup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ username, password })
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          alert('注册成功！即将跳转到登录页面');
+          window.location.href = './login.html'; 
+        } else {
+          alert('注册失败：' + data.message);
+        }
+      })
+      .catch(error => {
+        console.error('请求出错:', error);
+        alert('网络错误，请稍后重试');
+      });
     });
   </script>
 </body>
