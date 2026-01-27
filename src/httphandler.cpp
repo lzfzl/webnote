@@ -499,7 +499,7 @@ bool http_handler::signUp(){
         if (check_res->next()) {  
                 return false;
         } else { 
-            std::string signup_sql = "INSERT INTO user (username, password, create_time, update_time) VALUES (?,SHA2(?, 256), NOW(), NOW())";
+            std::string signup_sql = "INSERT INTO `user` (username, password, email, create_time, update_time) VALUES (?,SHA2(?, 256),'space', NOW(), NOW())";
             signup_pstmt = sqlconn->prepareStatement(signup_sql);
             signup_pstmt->setString(1, input_name);
             signup_pstmt->setString(2, input_passwd);
