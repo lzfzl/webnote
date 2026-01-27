@@ -23,6 +23,8 @@
 #include <cppconn/resultset.h>    
 #include <cppconn/exception.h>     
 #include <cppconn/metadata.h>  
+#include <openssl/sha.h>
+#include <sstream>
 #include "json.hpp"
 const int READ_BUFFER_SIZE = 1024;
 const int WRITE_BUFFER_SIZE = 1024;

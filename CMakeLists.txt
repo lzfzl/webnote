@@ -9,4 +9,4 @@ file(GLOB SOURCES CONFIGURE_DEPENDS
      "${CMAKE_SOURCE_DIR}/src/*.cpp"
 )
 add_executable(webserver ${SOURCES})
-target_link_libraries(webserver mysqlcppconn)
+target_link_libraries(webserver mysqlcppconn crypto)

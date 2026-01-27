@@ -215,12 +215,12 @@
             <table>
                 <thead>
                     <tr>
-                        <th><input type="checkbox" id="selectAll"></th>
-                        <th>计划名称</th>
-                        <th>计划状态</th>
-                        <th>计划内容</th>
-                        <th>截止日期</th>
-                        <th>计划附件</th>
+                        <th><input type="checkbox" id="selectAll"></th>       
+                        <th>计划名称</th>       
+                        <th>计划状态</th>       
+                        <th>计划内容</th>        
+                        <th>截止日期</th>        
+                        <th>计划附件</th>        
                         <th>操作</th>
                     </tr>
                 </thead>
@@ -312,21 +312,6 @@
                     pageSize,
                     keyword
                 });
-
-                // // 模拟接口请求（实际使用时删除）
-                // await new Promise(resolve => setTimeout(resolve, 800));
-                // const result = {
-                //     total: 101,
-                //     list: [
-                //         { id: 1, name: "沧州市办公用品采购项目", status: "已完成", content: "BH0038", deadline: "待履行", attachment: "receive" },
-                //         { id: 2, name: "红河哈尼族彝族自治州采购项目", status: "待履行", content: "BH0039", deadline: "审核失败", attachment: "receive" },
-                //         { id: 3, name: "铜川市办公用品采购项目", status: "待履行", content: "BH0040", deadline: "待审核", attachment: "pay" },
-                //         { id: 4, name: "陇南市办公用品采购项目", status: "待履行", content: "BH0041", deadline: "待履行", attachment: "pay" },
-                //         { id: 5, name: "新余市办公用品采购项目", status: "待履行", content: "BH0042", deadline: "审核失败", attachment: "pay" },
-                //         { id: 6, name: "新余市办公用品采购项目", status: "待履行", content: "BH0042", deadline: "审核失败", attachment: "pay" }
-                //     ]
-                // };
-
                 renderTable(result);
                 return result;
             } catch (error) {
@@ -336,54 +321,69 @@
             }
         }
 
-        // 2. 渲染表格数据
         function renderTable(data) {
-            const tableBody = document.getElementById('tableBody');
-            const totalData = document.getElementById('totalData');
-            
-            // 更新总数据数
-            totalData.textContent = `共 ${data.total} 项数据`;
-            
-            // 清空表格
-            tableBody.innerHTML = '';
-            
-            // 渲染每条数据
-            if (data.list.length === 0) {
-                tableBody.innerHTML = '<tr><td colspan="7" class="loading">暂无数据</td></tr>';
-                return;
-            }
-
-            data.list.forEach(item => {
-                const tr = document.createElement('tr');
-                
-                // 状态样式类
-                const statusClass = item.status === "已完成" ? "status-completed" : "status-pending";
-                // 附件标签样式类和文本
-                const attachmentConfig = item.attachment === "receive" 
-                    ? { class: "tag-receive", text: "↓ 收款" } 
-                    : { class: "tag-pay", text: "↑ 付款" };
-                
-                tr.innerHTML = `
-                    <td><input type="checkbox" class="item-checkbox" data-id="${item.id}"></td>
-                    <td>${item.name}</td>
-                    <td><span class="status ${statusClass}">${item.status}</span></td>
-                    <td>${item.content}</td>
-                    <td>${item.deadline}</td>
-                    <td><span class="tag ${attachmentConfig.class}">${attachmentConfig.text}</span></td>
-                    <td class="operation">
-                        <span class="manage-btn" data-id="${item.id}">管理</span>
-                        <span class="delete-btn" data-id="${item.id}">删除</span>
-                    </td>
-                `;
-                
-                tableBody.appendChild(tr);
-            });
-            
-            // 初始化复选框事件监听
-            initCheckboxEvents();
-            // 初始化操作按钮事件
-            initOperationEvents();
+        const tableBody = document.getElementById('tableBody');
+        const totalData = document.getElementById('totalData');
+        
+        // 更新总数据数
+        totalData.textContent = `共 ${data.total} 项数据`;
+        
+        // 清空表格
+        tableBody.innerHTML = '';
+        
+        // 渲染每条数据
+        if (data.list.length === 0) {
+            tableBody.innerHTML = '<tr><td colspan="8" class="loading">暂无数据</td></tr>';
+            return;
         }
+
+        // 状态枚举值映射（数据库值 → 前端展示文本+样式）
+        const statusMap = {
+            'unfinished': { text: '未完成', class: 'status-pending' },
+            'finished': { text: '已完成', class: 'status-completed' },
+            'cancelled': { text: '已取消', class: 'status-pending' },
+            'delayed': { text: '已延期', class: 'status-pending' }
+        };
+
+        data.list.forEach(item => {
+            const tr = document.createElement('tr');
+            
+            // 获取状态对应的展示文本和样式
+            const statusInfo = statusMap[item.status] || { text: item.status, class: 'status-pending' };
+            // 附件标签（filepth对应receive/pay）
+            const attachmentConfig = item.filepth === "receive" 
+                ? { class: "tag-receive", text: "↓ 收款" } 
+                : { class: "tag-pay", text: "↑ 付款" };
+            
+            // 核心：仅保留数据库核心字段，去掉username列
+            tr.innerHTML = `
+                <td><input type="checkbox" class="item-checkbox" data-id="${item.planid}"></td>
+                <td>${item.planname}</td> <!-- 计划名称（planname） -->
+                <td><span class="status ${statusInfo.class}">${statusInfo.text}</span></td> <!-- 计划状态（status） -->
+                <td>${item.content || '-'}</td> <!-- 计划内容（content），空值显示- -->
+                <td>${item.deadline ? formatDatetime(item.deadline) : '-'}</td> <!-- 截止日期（deadline），格式化 -->
+                <td><span class="tag ${attachmentConfig.class}">${attachmentConfig.text}</span></td> <!-- 计划附件（filepth） -->
+                <td class="operation">
+                    <span class="manage-btn" data-id="${item.planid}">管理</span>
+                    <span class="delete-btn" data-id="${item.planid}">删除</span>
+                </td>
+            `;
+            
+            tableBody.appendChild(tr);
+        });
+        
+        // 初始化复选框事件监听
+        initCheckboxEvents();
+        // 初始化操作按钮事件
+        initOperationEvents();
+    }
+
+    // 新增：datetime格式化为易读格式
+    function formatDatetime(datetimeStr) {
+        if (!datetimeStr) return '-';
+        const date = new Date(datetimeStr);
+        return `${date.getFullYear()}-${(date.getMonth()+1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+    }
 
         // 3. 初始化复选框相关事件
         function initCheckboxEvents() {

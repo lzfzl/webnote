@@ -499,7 +499,7 @@ bool http_handler::signUp(){
         if (check_res->next()) {  
                 return false;
         } else { 
-            std::string signup_sql = "INSERT INTO user (username, password, create_time, update_time) VALUES (?, ?, NOW(), NOW())";
+            std::string signup_sql = "INSERT INTO user (username, password, create_time, update_time) VALUES (?,SHA2(?, 256), NOW(), NOW())";
             signup_pstmt = sqlconn->prepareStatement(signup_sql);
             signup_pstmt->setString(1, input_name);
             signup_pstmt->setString(2, input_passwd);
@@ -528,7 +528,7 @@ bool http_handler::getUserData(){
     sql::ResultSet* res_data = nullptr;
 
     try {
-        // ========== 第一步：查询指定用户的总条数 ==========
+        // 第一步：查询指定用户的总条数 
         std::string sql_count = "SELECT COUNT(*) AS total FROM plan WHERE username=?";
         if (!m_post_params["keyword"].empty()) {
             sql_count += " AND (name LIKE ? OR content LIKE ?)";
@@ -537,7 +537,7 @@ bool http_handler::getUserData(){
         int param_idx = 1;
         // 绑定用户名参数（第一个?）
         pstmt_count->setString(param_idx++, cur_user);
-        // 绑定关键词模糊查询参数（可选）
+        // 绑定关键词模糊查询参数
         if (!m_post_params["keyword"].empty()) {
             std::string like_key = "%" + m_post_params["keyword"] + "%";
             pstmt_count->setString(param_idx++, like_key);
@@ -548,32 +548,32 @@ bool http_handler::getUserData(){
         if (res_count->next()) {
             total = res_count->getInt("total");
         }
-        // ========== 第二步：分页查询指定用户的数据 ==========
-        std::string sql_data = "SELECT id, name, status, content, deadline, attachment "
+        // 分页查询指定用户的数据
+        std::string sql_data = "SELECT planid, planname, status, content, deadline, filepth "
                                "FROM plan WHERE username=?";
         if (!m_post_params["keyword"].empty()) {
             sql_data += " AND (name LIKE ? OR content LIKE ?)";
         }
-        sql_data += " ORDER BY id DESC LIMIT ? OFFSET ?";
+        sql_data += " ORDER BY planid DESC LIMIT ? OFFSET ?";
 
         pstmt_data = sqlconn->prepareStatement(sql_data);
         param_idx = 1;
-        // 1. 绑定用户名（第一个?）
+        // 绑定用户名（第一个?）
         pstmt_data->setString(param_idx++, cur_user);
-        // 2. 绑定关键词参数（可选）
+        // 绑定关键词参数（可选）
         if (!m_post_params["keyword"].empty()) {
             std::string like_key = "%" + m_post_params["keyword"] + "%";
             pstmt_data->setString(param_idx++, like_key);
             pstmt_data->setString(param_idx++, like_key);
         }
-        // 3. 绑定分页参数
+        // 绑定分页参数
         int offset = (stoi(m_post_params["page"]) - 1) * stoi(m_post_params["pageSize"]);
         pstmt_data->setInt(param_idx++, stoi(m_post_params["pageSize"]));
         pstmt_data->setInt(param_idx++, offset);
 
         res_data = pstmt_data->executeQuery();
 
-        // ========== 第三步：拼接符合前端要求的JSON ==========
+        // 拼接符合前端要求的JSON
         m_write_idx = 0;
         memset(m_write_buf, 0, WRITE_BUFFER_SIZE);
 
@@ -587,20 +587,20 @@ bool http_handler::getUserData(){
             }
             first_item = false;
 
-            // 严格匹配前端字段：id/name/status/content/deadline/attachment
+            // 匹配前端
             add_response(
-                "{\"id\":%d,"
-                "\"name\":\"%s\","
+                "{\"planid\":%d,"
+                "\"planname\":\"%s\","
                 "\"status\":\"%s\","
                 "\"content\":\"%s\","
                 "\"deadline\":\"%s\","
-                "\"attachment\":\"%s\"}",
-                res_data->getInt("id"),
-                res_data->getString("name").c_str(),
-                res_data->getString("status").c_str(),
-                res_data->getString("content").c_str(),
-                res_data->getString("deadline").c_str(),
-                res_data->getString("attachment").c_str()
+                "\"filepth\":\"%s\"}",
+                res_data->getInt("planid"),          //  planid（表主键字段）
+                res_data->getString("planname").c_str(),  // planname（计划名称字段）
+                res_data->getString("status").c_str(),    // status 
+                res_data->getString("content").c_str(),   // content 
+                res_data->getString("deadline").c_str(),  // deadline 
+                res_data->getString("filepth").c_str()    //  filepth（附件路径字段）
             );
 
             // 缓冲区溢出检查
@@ -611,17 +611,13 @@ bool http_handler::getUserData(){
         }
         // 写入JSON尾部
         add_response("]}");
-        // 调试输出（可选）
+        // 调试输出
         std::cout << "生成的用户[" << cur_user << "]的JSON响应：\n" << m_write_buf << std::endl;
         return true;
     } catch (sql::SQLException& e) {
         std::cerr << "SQL异常：" << e.what() << " (错误码：" << e.getErrorCode() << ")" << std::endl;
-        // 错误响应（前端可识别）
+        // 错误响应
         add_response("{\"code\":500,\"msg\":\"数据库查询失败：%s\",\"total\":0,\"list\":[]}", e.what());
-        return false;
-    } catch (std::exception& e) {
-        std::cerr << "系统异常：" << e.what() << std::endl;
-        add_response("{\"code\":500,\"msg\":\"系统错误：%s\",\"total\":0,\"list\":[]}", e.what());
         return false;
     } 
     // 释放所有资源
@@ -629,7 +625,6 @@ bool http_handler::getUserData(){
     if (res_data != nullptr) delete res_data;
     if (pstmt_count != nullptr) delete pstmt_count;
     if (pstmt_data != nullptr) delete pstmt_data;
-    
 }
 
 bool http_handler::checkLogin(){
@@ -654,10 +649,17 @@ bool http_handler::checkLogin(){
 
         if (res->next()) {  
             std::string db_passwd = res->getString("password");
-            if (db_passwd == input_passwd) {
+            unsigned char hash[SHA256_DIGEST_LENGTH];
+            // 对明文密码计算SHA256哈希（二进制）
+            SHA256((const unsigned char*)input_passwd.c_str(), input_passwd.length(), hash);
+            std::stringstream ss;
+            for (int i = 0; i < SHA256_DIGEST_LENGTH; ++i) {
+                ss << std::hex << std::setw(2) << std::setfill('0') << (int)hash[i];
+            }
+            std::cout<<db_passwd <<std::endl<<ss.str();
+            if (db_passwd == ss.str()) {
                 cur_user = input_name;
                 return true;
-                // duqu shuju 
             } else {
                 std::cout << "密码错误！" << std::endl;
                 return false;
