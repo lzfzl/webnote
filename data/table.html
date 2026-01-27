@@ -31,6 +31,7 @@
             border-radius: 4px;
             cursor: pointer;
             font-size: 14px;
+            transition: all 0.2s;
         }
         .btn-primary {
             background-color: #2f54eb;
@@ -40,6 +41,11 @@
             background-color: #e5e6eb;
             color: #333;
             margin-left: 8px;
+        }
+        .btn:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+            opacity: 0.7;
         }
         .selected-info {
             color: #666;
@@ -114,6 +120,7 @@
             text-decoration: none;
             margin-right: 12px;
             font-size: 14px;
+            cursor: pointer;
         }
         .operation a:last-child {
             color: #ff4d4f;
@@ -168,17 +175,41 @@
             color: #666;
             font-size: 16px;
         }
+        /* 提示框样式 */
+        .toast {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 10px 20px;
+            border-radius: 4px;
+            color: white;
+            font-size: 14px;
+            z-index: 9999;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .toast-success {
+            background-color: #52c41a;
+        }
+        .toast-error {
+            background-color: #ff4d4f;
+        }
+        .toast-show {
+            opacity: 1;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
             <div>
-                <button class="btn btn-primary">新建计划</button>
-                <button class="btn btn-default">导出计划</button>
+                <button class="btn btn-primary" id="createPlanBtn">新建计划</button>
+                <button class="btn btn-default" id="exportPlanBtn">导出计划</button>
                 <span class="selected-info">已选 <span id="selectedCount">0</span> 项</span>
             </div>
-            <input type="text" class="search-box" placeholder="请输入你需要搜索的内容">
+            <input type="text" class="search-box" id="searchInput" placeholder="请输入你需要搜索的内容">
+            <button class="btn btn-primary" style="margin-left: 8px;" id="searchBtn">搜索</button>
         </div>
         <div class="table-container">
             <table>
@@ -202,52 +233,107 @@
             <div class="footer">
                 <div id="totalData">共 0 项数据</div>
                 <div class="pagination">
-                    <select class="page-btn" style="width: auto; padding: 0 8px;">
-                        <option>20条/页</option>
-                        <option>50条/页</option>
-                        <option>100条/页</option>
+                    <select class="page-btn" id="pageSizeSelect" style="width: auto; padding: 0 8px;">
+                        <option value="20">20条/页</option>
+                        <option value="50">50条/页</option>
+                        <option value="100">100条/页</option>
                     </select>
-                    <span style="margin: 0 8px;">‹</span>
-                    <button class="page-btn active">1</button>
-                    <button class="page-btn">2</button>
-                    <button class="page-btn">3</button>
-                    <button class="page-btn">4</button>
-                    <button class="page-btn">5</button>
+                    <span id="prevPageBtn" style="margin: 0 8px; cursor: pointer;">‹</span>
+                    <button class="page-btn active" data-page="1">1</button>
+                    <button class="page-btn" data-page="2">2</button>
+                    <button class="page-btn" data-page="3">3</button>
+                    <button class="page-btn" data-page="4">4</button>
+                    <button class="page-btn" data-page="5">5</button>
                     <span style="margin: 0 8px;">...</span>
-                    <button class="page-btn">11</button>
-                    <span style="margin: 0 8px;">›</span>
+                    <button class="page-btn" data-page="11">11</button>
+                    <span id="nextPageBtn" style="margin: 0 8px; cursor: pointer;">›</span>
                     <div class="page-jump">
-                        跳至 <input type="text" value="11"> /20 页
+                        跳至 <input type="text" id="jumpPageInput" value="11"> /20 页
+                        <button class="btn btn-default" style="margin-left: 8px;" id="jumpPageBtn">确定</button>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
+    <!-- 提示框 -->
+    <div class="toast" id="toast"></div>
+
     <script>
-        // 1. 模拟从后端获取数据的函数
-        async function fetchData() {
-            // 模拟接口请求延迟
-            await new Promise(resolve => setTimeout(resolve, 800));
+        // 提示框工具函数
+        function showToast(message, isSuccess = true) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = `toast toast-${isSuccess ? 'success' : 'error'} toast-show`;
             
-            // 这里替换成你的真实后端接口地址
-            // const response = await fetch('/api/purchase-plans');
-            // const data = await response.json();
-            
-            // 模拟后端返回的数据（实际使用时删除这段，改用上面的真实接口请求）
-            const mockData = {
-                total: 101,
-                list: [
-                    { id: 1, name: "沧州市办公用品采购项目", status: "已完成", content: "BH0038", deadline: "待履行", attachment: "receive" },
-                    { id: 2, name: "红河哈尼族彝族自治州采购项目", status: "待履行", content: "BH0039", deadline: "审核失败", attachment: "receive" },
-                    { id: 3, name: "铜川市办公用品采购项目", status: "待履行", content: "BH0040", deadline: "待审核", attachment: "pay" },
-                    { id: 4, name: "陇南市办公用品采购项目", status: "待履行", content: "BH0041", deadline: "待履行", attachment: "pay" },
-                    { id: 5, name: "新余市办公用品采购项目", status: "待履行", content: "BH0042", deadline: "审核失败", attachment: "pay" },
-                    { id: 6, name: "新余市办公用品采购项目", status: "待履行", content: "BH0042", deadline: "审核失败", attachment: "pay" }
-                ]
-            };
-            
-            return mockData;
+            setTimeout(() => {
+                toast.className = 'toast';
+            }, 3000);
+        }
+
+        // API 请求工具函数
+        async function requestApi(url, method = 'GET', data = {}) {
+            try {
+                const options = {
+                    method: method,
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                };
+
+                if (method !== 'GET') {
+                    options.body = JSON.stringify(data);
+                } else if (Object.keys(data).length > 0) {
+                    // GET 请求拼接参数
+                    const params = new URLSearchParams(data);
+                    url = `${url}?${params.toString()}`;
+                }
+
+                const response = await fetch(url, options);
+                const result = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(result.message || '请求失败');
+                }
+
+                return result;
+            } catch (error) {
+                showToast(error.message || '网络异常，请重试', false);
+                throw error;
+            }
+        }
+
+        // 1. 模拟/真实 从后端获取数据的函数
+        async function fetchData(page = 1, pageSize = 20, keyword = '') {
+            try {
+                // 真实接口调用（取消注释使用）
+                const result = await requestApi('./api/purchase-plans', 'GET', {
+                    page,
+                    pageSize,
+                    keyword
+                });
+
+                // // 模拟接口请求（实际使用时删除）
+                // await new Promise(resolve => setTimeout(resolve, 800));
+                // const result = {
+                //     total: 101,
+                //     list: [
+                //         { id: 1, name: "沧州市办公用品采购项目", status: "已完成", content: "BH0038", deadline: "待履行", attachment: "receive" },
+                //         { id: 2, name: "红河哈尼族彝族自治州采购项目", status: "待履行", content: "BH0039", deadline: "审核失败", attachment: "receive" },
+                //         { id: 3, name: "铜川市办公用品采购项目", status: "待履行", content: "BH0040", deadline: "待审核", attachment: "pay" },
+                //         { id: 4, name: "陇南市办公用品采购项目", status: "待履行", content: "BH0041", deadline: "待履行", attachment: "pay" },
+                //         { id: 5, name: "新余市办公用品采购项目", status: "待履行", content: "BH0042", deadline: "审核失败", attachment: "pay" },
+                //         { id: 6, name: "新余市办公用品采购项目", status: "待履行", content: "BH0042", deadline: "审核失败", attachment: "pay" }
+                //     ]
+                // };
+
+                renderTable(result);
+                return result;
+            } catch (error) {
+                const tableBody = document.getElementById('tableBody');
+                tableBody.innerHTML = '<tr><td colspan="7" class="loading">数据加载失败，请刷新重试</td></tr>';
+                console.error('数据加载失败:', error);
+            }
         }
 
         // 2. 渲染表格数据
@@ -262,6 +348,11 @@
             tableBody.innerHTML = '';
             
             // 渲染每条数据
+            if (data.list.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="7" class="loading">暂无数据</td></tr>';
+                return;
+            }
+
             data.list.forEach(item => {
                 const tr = document.createElement('tr');
                 
@@ -279,7 +370,10 @@
                     <td>${item.content}</td>
                     <td>${item.deadline}</td>
                     <td><span class="tag ${attachmentConfig.class}">${attachmentConfig.text}</span></td>
-                    <td class="operation"><a href="#">管理</a><a href="#">删除</a></td>
+                    <td class="operation">
+                        <span class="manage-btn" data-id="${item.id}">管理</span>
+                        <span class="delete-btn" data-id="${item.id}">删除</span>
+                    </td>
                 `;
                 
                 tableBody.appendChild(tr);
@@ -287,6 +381,8 @@
             
             // 初始化复选框事件监听
             initCheckboxEvents();
+            // 初始化操作按钮事件
+            initOperationEvents();
         }
 
         // 3. 初始化复选框相关事件
@@ -323,16 +419,170 @@
             }
         }
 
-        // 4. 页面加载完成后执行
+        // 4. 初始化操作按钮事件（管理、删除）
+        function initOperationEvents() {
+            // 管理按钮
+            document.querySelectorAll('.manage-btn').forEach(btn => {
+                btn.addEventListener('click', async function() {
+                    const planId = this.dataset.id;
+                    try {
+                        // 调用管理计划接口
+                        const result = await requestApi(`./api/purchase-plans/${planId}/manage`, 'GET');
+                        showToast('进入计划管理页面成功');
+                        // 这里可以跳转到管理页面
+                        // window.location.href = `./manage-plan.html?id=${planId}`;
+                    } catch (error) {
+                        console.error('管理计划失败:', error);
+                    }
+                });
+            });
+
+            // 删除按钮
+            document.querySelectorAll('.delete-btn').forEach(btn => {
+                btn.addEventListener('click', async function() {
+                    const planId = this.dataset.id;
+                    if (!confirm('确定要删除该采购计划吗？删除后不可恢复！')) {
+                        return;
+                    }
+
+                    try {
+                        // 禁用按钮防止重复点击
+                        this.style.pointerEvents = 'none';
+                        this.style.opacity = '0.7';
+                        
+                        // 调用删除计划接口
+                        const result = await requestApi(`./api/purchase-plans/${planId}`, 'DELETE');
+                        showToast('删除成功');
+                        
+                        // 重新加载数据
+                        fetchData();
+                    } catch (error) {
+                        // 恢复按钮状态
+                        this.style.pointerEvents = 'auto';
+                        this.style.opacity = '1';
+                        console.error('删除计划失败:', error);
+                    }
+                });
+            });
+        }
+
+        // 5. 初始化页面交互事件
+        function initPageEvents() {
+            // 新建计划按钮
+            document.getElementById('createPlanBtn').addEventListener('click', async function() {
+                try {
+                    this.disabled = true;
+                    // 调用新建计划接口
+                    const result = await requestApi('./api/purchase-plans/create', 'GET');
+                    showToast('进入新建计划页面成功');
+                    // 这里可以跳转到新建页面
+                    // window.location.href = './create-plan.html';
+                } catch (error) {
+                    console.error('新建计划失败:', error);
+                } finally {
+                    this.disabled = false;
+                }
+            });
+
+            // 导出计划按钮
+            document.getElementById('exportPlanBtn').addEventListener('click', async function() {
+                // 获取选中的计划ID
+                const selectedIds = Array.from(document.querySelectorAll('.item-checkbox:checked'))
+                    .map(cb => cb.dataset.id);
+                
+                if (selectedIds.length === 0 && !confirm('未选择任何计划，是否导出全部计划？')) {
+                    return;
+                }
+
+                try {
+                    this.disabled = true;
+                    // 调用导出计划接口
+                    const result = await requestApi('./api/purchase-plans/export', 'POST', {
+                        ids: selectedIds.length > 0 ? selectedIds : []
+                    });
+                    
+                    // 模拟文件下载
+                    showToast('导出成功，开始下载文件');
+                    // 创建下载链接
+                    const link = document.createElement('a');
+                    link.href = result.downloadUrl || '#';
+                    link.download = '采购计划列表.xlsx';
+                    link.click();
+                } catch (error) {
+                    console.error('导出计划失败:', error);
+                } finally {
+                    this.disabled = false;
+                }
+            });
+
+            // 搜索按钮
+            document.getElementById('searchBtn').addEventListener('click', function() {
+                const keyword = document.getElementById('searchInput').value.trim();
+                fetchData(1, 20, keyword);
+            });
+
+            // 搜索框回车事件
+            document.getElementById('searchInput').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    document.getElementById('searchBtn').click();
+                }
+            });
+
+            // 每页条数选择
+            document.getElementById('pageSizeSelect').addEventListener('change', function() {
+                const pageSize = this.value;
+                fetchData(1, pageSize, document.getElementById('searchInput').value.trim());
+            });
+
+            // 上一页按钮
+            document.getElementById('prevPageBtn').addEventListener('click', function() {
+                const activePage = parseInt(document.querySelector('.page-btn.active').dataset.page || 1);
+                if (activePage > 1) {
+                    fetchData(activePage - 1, document.getElementById('pageSizeSelect').value, document.getElementById('searchInput').value.trim());
+                }
+            });
+
+            // 下一页按钮
+            document.getElementById('nextPageBtn').addEventListener('click', function() {
+                const activePage = parseInt(document.querySelector('.page-btn.active').dataset.page || 1);
+                fetchData(activePage + 1, document.getElementById('pageSizeSelect').value, document.getElementById('searchInput').value.trim());
+            });
+
+            // 页码按钮
+            document.querySelectorAll('.page-btn[data-page]').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const page = this.dataset.page;
+                    fetchData(page, document.getElementById('pageSizeSelect').value, document.getElementById('searchInput').value.trim());
+                    // 更新激活状态
+                    document.querySelectorAll('.page-btn').forEach(pBtn => pBtn.classList.remove('active'));
+                    this.classList.add('active');
+                });
+            });
+
+            // 跳转页码按钮
+            document.getElementById('jumpPageBtn').addEventListener('click', function() {
+                const jumpPage = parseInt(document.getElementById('jumpPageInput').value);
+                if (isNaN(jumpPage) || jumpPage < 1) {
+                    showToast('请输入有效的页码', false);
+                    return;
+                }
+                fetchData(jumpPage, document.getElementById('pageSizeSelect').value, document.getElementById('searchInput').value.trim());
+            });
+
+            // 跳转页码输入框回车事件
+            document.getElementById('jumpPageInput').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    document.getElementById('jumpPageBtn').click();
+                }
+            });
+        }
+
+        // 6. 页面加载完成后执行
         document.addEventListener('DOMContentLoaded', async function() {
-            try {
-                const data = await fetchData();
-                renderTable(data);
-            } catch (error) {
-                const tableBody = document.getElementById('tableBody');
-                tableBody.innerHTML = '<tr><td colspan="7" class="loading">数据加载失败，请刷新重试</td></tr>';
-                console.error('数据加载失败:', error);
-            }
+            // 初始化页面事件
+            initPageEvents();
+            // 加载初始数据
+            await fetchData();
         });
     </script>
 </body>

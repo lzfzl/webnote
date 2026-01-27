@@ -10,7 +10,7 @@
 #include <type_traits>
 #include "httphandler.h"
 #include "sql_conn_pool.h"
-const int MAX_WORKER_NUMBER = 1;
+const int MAX_WORKER_NUMBER = 4;
 class threadpoll{
 public:
     threadpoll(sqlPools *sqlpool,int thread_num = MAX_WORKER_NUMBER);

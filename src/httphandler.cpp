@@ -23,6 +23,7 @@ void http_handler::init(int clientfd = -100,int epollfd = -100){
     bytes_to_send = 0;
     bytes_have_sent = 0;
     m_read_ret = NO_REQUEST;
+    cur_user = "";
     if(m_clifd!=0){
         int flags = fcntl(m_clifd, F_GETFL, 0);
         fcntl(m_clifd,F_SETFL,flags|O_NONBLOCK);
@@ -86,9 +87,34 @@ http_handler::HTTP_CODE http_handler::parse_request_line(char *text){
     char * method = text;
     while (*url == ' ' || *url == '\t') ++url;
     while (*version == ' ' || *version == '\t') ++version;
+
     m_method = method;
     m_url = url;
     m_version = version;
+    if (strcasecmp(m_method, "GET") == 0) { 
+        size_t query_pos = m_url.find('?');
+        if (query_pos != std::string::npos) {
+            std::string query_str = m_url.substr(query_pos + 1);
+            m_url = m_url.substr(0, query_pos);
+            size_t start = 0;
+            size_t amp_pos = query_str.find('&');
+            while (start < query_str.length()) {
+                size_t end = (amp_pos == std::string::npos) ? query_str.length() : amp_pos;
+                std::string kv_pair = query_str.substr(start, end - start);
+                size_t eq_pos = kv_pair.find('=');
+                if (eq_pos != std::string::npos) {
+                    std::string key = kv_pair.substr(0, eq_pos);
+                    std::string value = kv_pair.substr(eq_pos + 1);
+                    value = url_decode(value);
+                    m_post_params[key] = value;
+                } else if (!kv_pair.empty()) {
+                    m_post_params[kv_pair] = "";
+                }
+                start = end + 1;
+                amp_pos = query_str.find('&', start);
+            }
+        }
+    }
     if(strcasecmp(m_method,"GET")&&strcasecmp(m_method,"PUT")&&strcasecmp(m_method,"OPTIONS")&&strcasecmp(m_method,"POST"))return BAD_REQUEST;
     if(strcasecmp(m_version,"HTTP/1.1")!=0&&strcasecmp(m_version,"HTTP/1.0")!=0)return BAD_REQUEST;
     m_check_state = CKECK_STATE_HEADER;
@@ -240,7 +266,6 @@ http_handler::HTTP_CODE http_handler::parse_body(char *text){
     else return NO_REQUEST;
 }
 
-
 http_handler::HTTP_CODE http_handler::process_read(){
     LINE_STATUS line_state = LINE_OK;
     HTTP_CODE ret = NO_REQUEST;
@@ -298,6 +323,9 @@ http_handler::HTTP_CODE http_handler::do_process(){
                 return WRONGLOGIN;
             }
         }
+    }
+    else if(url =="/api/purchase-plans"){
+        return DATA;
     }
     else if(url =="/api/alterbutton"){
 
@@ -439,6 +467,9 @@ bool http_handler::process_write(){
         add_headers(strlen(body_wrongsignup));
         add_response(body_wrongsignup);
     }
+    else if(ret == DATA){
+        if(!getUserData())return false;
+    }
     iov[0].iov_base = m_write_buf;
     iov[0].iov_len = m_write_idx;
     m_iov_count = 1;
@@ -490,6 +521,116 @@ bool http_handler::signUp(){
     delete signup_pstmt;
     return false;
 }
+bool http_handler::getUserData(){
+    sql::PreparedStatement* pstmt_count = nullptr;
+    sql::PreparedStatement* pstmt_data = nullptr;
+    sql::ResultSet* res_count = nullptr;
+    sql::ResultSet* res_data = nullptr;
+
+    try {
+        // ========== 第一步：查询指定用户的总条数 ==========
+        std::string sql_count = "SELECT COUNT(*) AS total FROM plan WHERE username=?";
+        if (!m_post_params["keyword"].empty()) {
+            sql_count += " AND (name LIKE ? OR content LIKE ?)";
+        }
+        pstmt_count = sqlconn->prepareStatement(sql_count);
+        int param_idx = 1;
+        // 绑定用户名参数（第一个?）
+        pstmt_count->setString(param_idx++, cur_user);
+        // 绑定关键词模糊查询参数（可选）
+        if (!m_post_params["keyword"].empty()) {
+            std::string like_key = "%" + m_post_params["keyword"] + "%";
+            pstmt_count->setString(param_idx++, like_key);
+            pstmt_count->setString(param_idx++, like_key);
+        }
+        res_count = pstmt_count->executeQuery();
+        int total = 0;
+        if (res_count->next()) {
+            total = res_count->getInt("total");
+        }
+        // ========== 第二步：分页查询指定用户的数据 ==========
+        std::string sql_data = "SELECT id, name, status, content, deadline, attachment "
+                               "FROM plan WHERE username=?";
+        if (!m_post_params["keyword"].empty()) {
+            sql_data += " AND (name LIKE ? OR content LIKE ?)";
+        }
+        sql_data += " ORDER BY id DESC LIMIT ? OFFSET ?";
+
+        pstmt_data = sqlconn->prepareStatement(sql_data);
+        param_idx = 1;
+        // 1. 绑定用户名（第一个?）
+        pstmt_data->setString(param_idx++, cur_user);
+        // 2. 绑定关键词参数（可选）
+        if (!m_post_params["keyword"].empty()) {
+            std::string like_key = "%" + m_post_params["keyword"] + "%";
+            pstmt_data->setString(param_idx++, like_key);
+            pstmt_data->setString(param_idx++, like_key);
+        }
+        // 3. 绑定分页参数
+        int offset = (stoi(m_post_params["page"]) - 1) * stoi(m_post_params["pageSize"]);
+        pstmt_data->setInt(param_idx++, stoi(m_post_params["pageSize"]));
+        pstmt_data->setInt(param_idx++, offset);
+
+        res_data = pstmt_data->executeQuery();
+
+        // ========== 第三步：拼接符合前端要求的JSON ==========
+        m_write_idx = 0;
+        memset(m_write_buf, 0, WRITE_BUFFER_SIZE);
+
+        // 写入JSON头部（保持前端预期的结构）
+        add_response("{\"total\":%d,\"list\":[", total);
+
+        bool first_item = true;
+        while (res_data->next()) {
+            if (!first_item) {
+                add_response(",");
+            }
+            first_item = false;
+
+            // 严格匹配前端字段：id/name/status/content/deadline/attachment
+            add_response(
+                "{\"id\":%d,"
+                "\"name\":\"%s\","
+                "\"status\":\"%s\","
+                "\"content\":\"%s\","
+                "\"deadline\":\"%s\","
+                "\"attachment\":\"%s\"}",
+                res_data->getInt("id"),
+                res_data->getString("name").c_str(),
+                res_data->getString("status").c_str(),
+                res_data->getString("content").c_str(),
+                res_data->getString("deadline").c_str(),
+                res_data->getString("attachment").c_str()
+            );
+
+            // 缓冲区溢出检查
+            if (m_write_idx >= WRITE_BUFFER_SIZE) {
+                std::cerr << "缓冲区已满，JSON拼接中断" << std::endl;
+                throw std::runtime_error("buffer overflow");
+            }
+        }
+        // 写入JSON尾部
+        add_response("]}");
+        // 调试输出（可选）
+        std::cout << "生成的用户[" << cur_user << "]的JSON响应：\n" << m_write_buf << std::endl;
+        return true;
+    } catch (sql::SQLException& e) {
+        std::cerr << "SQL异常：" << e.what() << " (错误码：" << e.getErrorCode() << ")" << std::endl;
+        // 错误响应（前端可识别）
+        add_response("{\"code\":500,\"msg\":\"数据库查询失败：%s\",\"total\":0,\"list\":[]}", e.what());
+        return false;
+    } catch (std::exception& e) {
+        std::cerr << "系统异常：" << e.what() << std::endl;
+        add_response("{\"code\":500,\"msg\":\"系统错误：%s\",\"total\":0,\"list\":[]}", e.what());
+        return false;
+    } 
+    // 释放所有资源
+    if (res_count != nullptr) delete res_count;
+    if (res_data != nullptr) delete res_data;
+    if (pstmt_count != nullptr) delete pstmt_count;
+    if (pstmt_data != nullptr) delete pstmt_data;
+    
+}
 
 bool http_handler::checkLogin(){
     std::string input_name, input_passwd;
@@ -514,6 +655,7 @@ bool http_handler::checkLogin(){
         if (res->next()) {  
             std::string db_passwd = res->getString("password");
             if (db_passwd == input_passwd) {
+                cur_user = input_name;
                 return true;
                 // duqu shuju 
             } else {

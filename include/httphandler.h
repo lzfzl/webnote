@@ -39,7 +39,7 @@ public:
     char *m_version,*m_method;
     std::string m_url;
     enum LINE_STATUS{LINE_OK,LINE_OPEN,LINE_BAD};
-    enum HTTP_CODE{BAD_REQUEST,NO_REQUEST,GET_REQUEST,INTERNAL_ERROR,FILE_REQUEST,NO_SOURCE,OPTIONS,WRONGLOGIN,SUCCESSLOGIN,SUCCESSSIGNUP,WRONGSIGNUP};
+    enum HTTP_CODE{DATA,BAD_REQUEST,NO_REQUEST,GET_REQUEST,INTERNAL_ERROR,FILE_REQUEST,NO_SOURCE,OPTIONS,WRONGLOGIN,SUCCESSLOGIN,SUCCESSSIGNUP,WRONGSIGNUP};
     enum CHECK_STATE{CKECK_STATE_REQUESTLINE,CKECK_STATE_HEADER,CHECK_STATE_CONTENT};
     CHECK_STATE m_check_state{CKECK_STATE_REQUESTLINE};
     int m_start_line = 0;
@@ -56,6 +56,7 @@ public:
     int bytes_to_send;
     int bytes_have_sent;
     int RorW;
+    std::string cur_user;
     HTTP_CODE m_read_ret;
     std::unordered_map<std::string, std::string> m_post_params;
     char *get_line();
@@ -72,6 +73,7 @@ public:
     HTTP_CODE parse_body(char *text);
     std::string url_decode(const std::string& encoded);
     sql::Connection* sqlconn;
+    sql::ResultSet* sqlres = nullptr;
     void close_map();
     bool add_response(const char* fmt,...);
     bool add_status_line(int status,const char *title);
@@ -87,4 +89,5 @@ public:
     bool checkLogin();
     bool add_options_header();
     bool signUp();
+    bool getUserData();
 };
