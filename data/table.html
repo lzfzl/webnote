@@ -232,23 +232,17 @@
             </table>
             <div class="footer">
                 <div id="totalData">共 0 项数据</div>
-                <div class="pagination">
+                <div class="pagination" id="pagination">
                     <select class="page-btn" id="pageSizeSelect" style="width: auto; padding: 0 8px;">
                         <option value="20">20条/页</option>
                         <option value="50">50条/页</option>
                         <option value="100">100条/页</option>
                     </select>
                     <span id="prevPageBtn" style="margin: 0 8px; cursor: pointer;">‹</span>
-                    <button class="page-btn active" data-page="1">1</button>
-                    <button class="page-btn" data-page="2">2</button>
-                    <button class="page-btn" data-page="3">3</button>
-                    <button class="page-btn" data-page="4">4</button>
-                    <button class="page-btn" data-page="5">5</button>
-                    <span style="margin: 0 8px;">...</span>
-                    <button class="page-btn" data-page="11">11</button>
+                    <span id="pageNumbers"></span>
                     <span id="nextPageBtn" style="margin: 0 8px; cursor: pointer;">›</span>
                     <div class="page-jump">
-                        跳至 <input type="text" id="jumpPageInput" value="11"> /20 页
+                        跳至 <input type="text" id="jumpPageInput" value="1"> /<span id="totalPages">1</span> 页
                         <button class="btn btn-default" style="margin-left: 8px;" id="jumpPageBtn">确定</button>
                     </div>
                 </div>
@@ -303,16 +297,27 @@
             }
         }
 
-        // 1. 模拟/真实 从后端获取数据的函数
+        const state = {
+            page: 1,
+            pageSize: 20,
+            total: 0,
+            keyword: ''
+        };
+
         async function fetchData(page = 1, pageSize = 20, keyword = '') {
             try {
-                // 真实接口调用（取消注释使用）
+                state.page = parseInt(page, 10);
+                state.pageSize = parseInt(pageSize, 10);
+                state.keyword = keyword || '';
+
                 const result = await requestApi('./api/purchase-plans', 'GET', {
-                    page,
-                    pageSize,
-                    keyword
+                    page: state.page,
+                    pageSize: state.pageSize,
+                    keyword: state.keyword
                 });
+                state.total = result.total || 0;
                 renderTable(result);
+                renderPagination();
                 return result;
             } catch (error) {
                 const tableBody = document.getElementById('tableBody');
@@ -376,6 +381,48 @@
         initCheckboxEvents();
         // 初始化操作按钮事件
         initOperationEvents();
+    }
+
+    function renderPagination() {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.pageSize));
+        const pageNumbers = document.getElementById('pageNumbers');
+        const totalPagesEl = document.getElementById('totalPages');
+        totalPagesEl.textContent = totalPages;
+        pageNumbers.innerHTML = '';
+
+        function createPageBtn(p) {
+            const btn = document.createElement('button');
+            btn.className = 'page-btn' + (p === state.page ? ' active' : '');
+            btn.dataset.page = p;
+            btn.textContent = p;
+            btn.addEventListener('click', () => {
+                if (p === state.page) return;
+                fetchData(p, state.pageSize, state.keyword);
+            });
+            return btn;
+        }
+
+        const pages = new Set([1, totalPages]);
+        for (let p = state.page - 2; p <= state.page + 2; p++) {
+            if (p >= 1 && p <= totalPages) pages.add(p);
+        }
+        const sorted = Array.from(pages).sort((a,b)=>a-b);
+        let prev = null;
+        sorted.forEach(p => {
+            if (prev !== null && p - prev > 1) {
+                const span = document.createElement('span');
+                span.style.margin = '0 8px';
+                span.textContent = '...';
+                pageNumbers.appendChild(span);
+            }
+            pageNumbers.appendChild(createPageBtn(p));
+            prev = p;
+        });
+
+        const prevBtn = document.getElementById('prevPageBtn');
+        const nextBtn = document.getElementById('nextPageBtn');
+        prevBtn.style.opacity = state.page > 1 ? '1' : '0.4';
+        nextBtn.style.opacity = state.page < totalPages ? '1' : '0.4';
     }
 
     // 新增：datetime格式化为易读格式
@@ -475,8 +522,9 @@
                     // 调用新建计划接口
                     const result = await requestApi('./api/purchase-plans/create', 'GET');
                     showToast('进入新建计划页面成功');
-                    // 这里可以跳转到新建页面
-                    // window.location.href = './create-plan.html';
+                    if (result && result.redirectUrl) {
+                        window.location.href = result.redirectUrl;
+                    }
                 } catch (error) {
                     console.error('新建计划失败:', error);
                 } finally {
@@ -518,7 +566,7 @@
             // 搜索按钮
             document.getElementById('searchBtn').addEventListener('click', function() {
                 const keyword = document.getElementById('searchInput').value.trim();
-                fetchData(1, 20, keyword);
+                fetchData(1, document.getElementById('pageSizeSelect').value, keyword);
             });
 
             // 搜索框回车事件
@@ -536,33 +584,24 @@
 
             // 上一页按钮
             document.getElementById('prevPageBtn').addEventListener('click', function() {
-                const activePage = parseInt(document.querySelector('.page-btn.active').dataset.page || 1);
-                if (activePage > 1) {
-                    fetchData(activePage - 1, document.getElementById('pageSizeSelect').value, document.getElementById('searchInput').value.trim());
+                if (state.page > 1) {
+                    fetchData(state.page - 1, document.getElementById('pageSizeSelect').value, document.getElementById('searchInput').value.trim());
                 }
             });
 
             // 下一页按钮
             document.getElementById('nextPageBtn').addEventListener('click', function() {
-                const activePage = parseInt(document.querySelector('.page-btn.active').dataset.page || 1);
-                fetchData(activePage + 1, document.getElementById('pageSizeSelect').value, document.getElementById('searchInput').value.trim());
-            });
-
-            // 页码按钮
-            document.querySelectorAll('.page-btn[data-page]').forEach(btn => {
-                btn.addEventListener('click', function() {
-                    const page = this.dataset.page;
-                    fetchData(page, document.getElementById('pageSizeSelect').value, document.getElementById('searchInput').value.trim());
-                    // 更新激活状态
-                    document.querySelectorAll('.page-btn').forEach(pBtn => pBtn.classList.remove('active'));
-                    this.classList.add('active');
-                });
+                const totalPages = Math.max(1, Math.ceil(state.total / state.pageSize));
+                if (state.page < totalPages) {
+                    fetchData(state.page + 1, document.getElementById('pageSizeSelect').value, document.getElementById('searchInput').value.trim());
+                }
             });
 
             // 跳转页码按钮
             document.getElementById('jumpPageBtn').addEventListener('click', function() {
                 const jumpPage = parseInt(document.getElementById('jumpPageInput').value);
-                if (isNaN(jumpPage) || jumpPage < 1) {
+                const totalPages = Math.max(1, Math.ceil(state.total / state.pageSize));
+                if (isNaN(jumpPage) || jumpPage < 1 || jumpPage > totalPages) {
                     showToast('请输入有效的页码', false);
                     return;
                 }

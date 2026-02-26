@@ -24,7 +24,10 @@
 #include <cppconn/exception.h>     
 #include <cppconn/metadata.h>  
 #include <openssl/sha.h>
+#include <openssl/rand.h>
 #include <sstream>
+#include <mutex>
+#include <chrono>
 #include "json.hpp"
 const int READ_BUFFER_SIZE = 1024;
 const int WRITE_BUFFER_SIZE = 1024;
@@ -41,7 +44,7 @@ public:
     char *m_version,*m_method;
     std::string m_url;
     enum LINE_STATUS{LINE_OK,LINE_OPEN,LINE_BAD};
-    enum HTTP_CODE{DATA,BAD_REQUEST,NO_REQUEST,GET_REQUEST,INTERNAL_ERROR,FILE_REQUEST,NO_SOURCE,OPTIONS,WRONGLOGIN,SUCCESSLOGIN,SUCCESSSIGNUP,WRONGSIGNUP};
+    enum HTTP_CODE{DATA,BAD_REQUEST,NO_REQUEST,GET_REQUEST,INTERNAL_ERROR,FILE_REQUEST,NO_SOURCE,OPTIONS,WRONGLOGIN,SUCCESSLOGIN,SUCCESSSIGNUP,WRONGSIGNUP,CREATEPLAN,ADDPLAN};
     enum CHECK_STATE{CKECK_STATE_REQUESTLINE,CKECK_STATE_HEADER,CHECK_STATE_CONTENT};
     CHECK_STATE m_check_state{CKECK_STATE_REQUESTLINE};
     int m_start_line = 0;
@@ -61,6 +64,7 @@ public:
     std::string cur_user;
     HTTP_CODE m_read_ret;
     std::unordered_map<std::string, std::string> m_post_params;
+    std::string m_set_cookie;
     char *get_line();
     void init(int clientfd,int epollfd);
     http_handler(int clientfd,int epollfd);
@@ -92,4 +96,5 @@ public:
     bool add_options_header();
     bool signUp();
     bool getUserData();
+    bool addPlan();
 };

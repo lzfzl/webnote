@@ -1,4 +1,10 @@
 #include "httphandler.h"
+#include <mutex>
+#include <unordered_map>
+#include <chrono>
+#include "session_store.h"
+
+
 char* http_handler::get_line(){
     return m_read_buf + m_start_line; 
 }
@@ -24,6 +30,7 @@ void http_handler::init(int clientfd = -100,int epollfd = -100){
     bytes_have_sent = 0;
     m_read_ret = NO_REQUEST;
     cur_user = "";
+    m_set_cookie.clear();
     if(m_clifd!=0){
         int flags = fcntl(m_clifd, F_GETFL, 0);
         fcntl(m_clifd,F_SETFL,flags|O_NONBLOCK);
@@ -144,6 +151,33 @@ http_handler::HTTP_CODE http_handler::parse_headers(char *text){
         text+=5;
         while(*text==' ')text++;
         m_host = text;
+    }
+    else if(strncasecmp(text,"Cookie:",7)==0){
+        text+=7;
+        while(*text==' ')text++;
+        std::string ck = text;
+        std::string key, val;
+        size_t i=0,n=ck.size();
+        while(i<n){
+            while(i<n && (ck[i]==' '||ck[i]==';')) ++i;
+            size_t k=i;
+            while(i<n && ck[i]!='=' && ck[i]!=';' && ck[i]!='\r' && ck[i]!='\n') ++i;
+            key = ck.substr(k, i-k);
+            if(i<n && ck[i]=='='){ ++i; size_t v=i; while(i<n && ck[i]!=';' && ck[i]!='\r' && ck[i]!='\n') ++i; val = ck.substr(v, i-v); }
+            if(key=="session"){
+                std::lock_guard<std::mutex> lk(g_sess_mtx);
+                auto it = g_sessions.find(val);
+                if(it!=g_sessions.end()){
+                    long long t = now_sec();
+                    if(it->second.exp>t){
+                        cur_user = it->second.user;
+                        it->second.exp = t + 7LL*24*3600;
+                    }else{
+                        g_sessions.erase(it);
+                    }
+                }
+            }
+        }
     }
     else{// ignore others
         while (*text != '\0' && *text != '\n') {
@@ -325,7 +359,13 @@ http_handler::HTTP_CODE http_handler::do_process(){
         }
     }
     else if(url =="/api/purchase-plans"){
+        if(strcasecmp(m_method,"POST")==0){
+            return ADDPLAN;
+        }
         return DATA;
+    }
+    else if(url =="/api/purchase-plans/create"){
+        return CREATEPLAN;
     }
     else if(url =="/api/alterbutton"){
 
@@ -378,7 +418,11 @@ bool http_handler::add_status_line(int status,const char *title){
     return add_response("%s %d %s\r\n","HTTP/1.1",status,title);
 } 
 bool http_handler::add_headers(int content_len){
-    return add_content_length(content_len)&&add_linger()&&add_blank_line();
+    bool ok = add_content_length(content_len)&&add_linger();
+    if(!m_set_cookie.empty()){
+        ok &= add_response("%s", m_set_cookie.c_str());
+    }
+    return ok&&add_blank_line();
 }
 bool http_handler::add_content_length(int content_len){
     return add_response("Content-Length:%d\r\n",content_len);
@@ -407,7 +451,7 @@ bool http_handler::process_write(){
     const char* body_500 = "<html><body><h1>500 Internal Error</h1></body></html>";
     const char* body_wronglogin = "{\"success\":false,\"message\":\"用户名或密码错误，请重新输入\"}";
     const char* body_successlogin = "{\"success\":true,\"message\":\"\"}";
-    const char* body_wrongsignup = "{\"success\":false,\"message\":\"used name\"}";
+    const char* body_wrongsignup = "{\"success\":false,\"message\":\"用户名或邮箱已存在\"}";
     const char* body_successsignup = "{\"success\":true,\"message\":\"\"}";
     if(ret==FILE_REQUEST){
         add_status_line(200,ok_200);
@@ -467,8 +511,17 @@ bool http_handler::process_write(){
         add_headers(strlen(body_wrongsignup));
         add_response(body_wrongsignup);
     }
+    else if(ret == CREATEPLAN){
+        add_status_line(200, ok_200);
+        const char* body_create = "{\"success\":true,\"redirectUrl\":\"./create-plan.html\"}";
+        add_headers(strlen(body_create));
+        add_response(body_create);
+    }
     else if(ret == DATA){
         if(!getUserData())return false;
+    }
+    else if(ret == ADDPLAN){
+        if(!addPlan())return false;
     }
     iov[0].iov_base = m_write_buf;
     iov[0].iov_len = m_write_idx;
@@ -476,17 +529,93 @@ bool http_handler::process_write(){
     bytes_to_send = m_write_idx;
     return true;
 }
+bool http_handler::addPlan(){
+    std::string planname = m_post_params["planname"];
+    std::string content = m_post_params["content"];
+    std::string deadline = m_post_params["deadline"];
+    std::string status = m_post_params["status"];
+    std::string filepth = m_post_params["filepth"];
+    if(planname.empty()){
+        m_write_idx = 0;
+        memset(m_write_buf,0,WRITE_BUFFER_SIZE);
+        add_status_line(400,"Bad Request");
+        std::string body = "{\"success\":false,\"message\":\"planname required\"}";
+        add_headers((int)body.size());
+        add_response("%s",body.c_str());
+        return true;
+    }
+    if(status.empty()) status = "unfinished";
+    if(!deadline.empty()){
+        for(char &ch: deadline){ if(ch=='T') ch = ' '; }
+        if(deadline.size()==16) deadline += ":00";
+    }
+    sql::PreparedStatement* pstmt = nullptr;
+    sql::ResultSet* rs = nullptr;
+    try{
+        if(deadline.empty()){
+            std::string sql = "INSERT INTO plan (planname, username, content, status, filepth) VALUES (?,?,?,?,?)";
+            pstmt = sqlconn->prepareStatement(sql);
+            pstmt->setString(1,planname);
+            pstmt->setString(2,cur_user);
+            pstmt->setString(3,content);
+            pstmt->setString(4,status);
+            pstmt->setString(5,filepth);
+            pstmt->executeUpdate();
+            std::cout<<"11111111";
+        }else{
+            std::string sql = "INSERT INTO plan (planname, username, content, deadline, status, filepth) VALUES (?,?,?,?,?,?)";
+            pstmt = sqlconn->prepareStatement(sql);
+            pstmt->setString(1,planname);
+            pstmt->setString(2,cur_user);
+            pstmt->setString(3,content);
+            pstmt->setString(4,deadline);
+            pstmt->setString(5,status);
+            pstmt->setString(6,filepth);
+            pstmt->executeUpdate();
+        }
+        delete pstmt; pstmt = nullptr;
+        pstmt = sqlconn->prepareStatement("SELECT LAST_INSERT_ID() AS id");
+        rs = pstmt->executeQuery();
+        int new_id = 0;
+        if(rs->next()) new_id = rs->getInt("id");
+        m_write_idx = 0;
+        memset(m_write_buf,0,WRITE_BUFFER_SIZE);
+        add_status_line(200,"OK");
+        std::string body = std::string("{\"success\":true,\"planid\":")+std::to_string(new_id)+"}";
+        add_headers((int)body.size());
+        add_response("%s",body.c_str());
+        if(rs) delete rs;
+        if(pstmt) delete pstmt;
+        std::cout<<"222222222222222222";
+        return true;
+    }catch(sql::SQLException& e){
+        m_write_idx = 0;
+        memset(m_write_buf,0,WRITE_BUFFER_SIZE);
+        add_status_line(500,"Internal Error");
+        std::string body = std::string("{\"success\":false,\"message\":\"")+e.what()+"\"}";
+        add_headers((int)body.size());
+        add_response("%s",body.c_str());
+        if(rs) delete rs;
+        if(pstmt) delete pstmt;
+        return false;
+    }
+}
 bool http_handler::signUp(){
-    std::string input_name, input_passwd;
-    // printf("signUp",input_name,input_passwd);
+    std::string input_name, input_passwd, input_email;
     auto it_name = m_post_params.find("username");
     auto it_passwd = m_post_params.find("password");
+    auto it_email = m_post_params.find("email");
     if (it_name == m_post_params.end() || it_passwd == m_post_params.end()) {
         std::cout <<"用户名或密码参数缺失！" << std::endl;
         return false;
     }
     input_name = it_name->second;
     input_passwd = it_passwd->second;
+    if (it_email != m_post_params.end() && !it_email->second.empty()) {
+        input_email = it_email->second;
+    } else {
+        input_email = input_name + "@placeholder.local";
+    }
     sql::PreparedStatement* check_pstmt = nullptr,*signup_pstmt = nullptr;
     sql::ResultSet* check_res = nullptr;
 
@@ -499,10 +628,11 @@ bool http_handler::signUp(){
         if (check_res->next()) {  
                 return false;
         } else { 
-            std::string signup_sql = "INSERT INTO `user` (username, password, email, create_time, update_time) VALUES (?,SHA2(?, 256),'space', NOW(), NOW())";
+            std::string signup_sql = "INSERT INTO `user` (username, password, email, create_time, update_time) VALUES (?,SHA2(?, 256),?, NOW(), NOW())";
             signup_pstmt = sqlconn->prepareStatement(signup_sql);
             signup_pstmt->setString(1, input_name);
             signup_pstmt->setString(2, input_passwd);
+            signup_pstmt->setString(3, input_email);
             int affected_rows = signup_pstmt->executeUpdate();
             if (affected_rows > 0) {
                 std::cout << "用户注册成功！用户名：" << input_name << std::endl;
@@ -515,6 +645,9 @@ bool http_handler::signUp(){
     } catch (sql::SQLException& e) {
         std::cout << "数据库操作异常：" << e.what() << std::endl;
         std::cout << "错误代码：" << e.getErrorCode() << std::endl;
+        if (e.getErrorCode() == 1062) {
+            return false;
+        }
     }
     delete check_res;
     delete check_pstmt;
@@ -528,18 +661,25 @@ bool http_handler::getUserData(){
     sql::ResultSet* res_data = nullptr;
 
     try {
-        // 第一步：查询指定用户的总条数 
+        int page = 1;
+        int pageSize = 20;
+        try {
+            if (!m_post_params["page"].empty()) page = std::max(1, std::stoi(m_post_params["page"]));
+        } catch (...) { page = 1; }
+        try {
+            if (!m_post_params["pageSize"].empty()) pageSize = std::max(1, std::stoi(m_post_params["pageSize"]));
+        } catch (...) { pageSize = 20; }
+        std::string keyword = m_post_params["keyword"];
+
         std::string sql_count = "SELECT COUNT(*) AS total FROM plan WHERE username=?";
-        if (!m_post_params["keyword"].empty()) {
-            sql_count += " AND (name LIKE ? OR content LIKE ?)";
+        if (!keyword.empty()) {
+            sql_count += " AND (planname LIKE ? OR content LIKE ?)";
         }
         pstmt_count = sqlconn->prepareStatement(sql_count);
         int param_idx = 1;
-        // 绑定用户名参数（第一个?）
         pstmt_count->setString(param_idx++, cur_user);
-        // 绑定关键词模糊查询参数
-        if (!m_post_params["keyword"].empty()) {
-            std::string like_key = "%" + m_post_params["keyword"] + "%";
+        if (!keyword.empty()) {
+            std::string like_key = "%" + keyword + "%";
             pstmt_count->setString(param_idx++, like_key);
             pstmt_count->setString(param_idx++, like_key);
         }
@@ -548,79 +688,71 @@ bool http_handler::getUserData(){
         if (res_count->next()) {
             total = res_count->getInt("total");
         }
-        // 分页查询指定用户的数据
         std::string sql_data = "SELECT planid, planname, status, content, deadline, filepth "
                                "FROM plan WHERE username=?";
-        if (!m_post_params["keyword"].empty()) {
-            sql_data += " AND (name LIKE ? OR content LIKE ?)";
+        if (!keyword.empty()) {
+            sql_data += " AND (planname LIKE ? OR content LIKE ?)";
         }
         sql_data += " ORDER BY planid DESC LIMIT ? OFFSET ?";
 
         pstmt_data = sqlconn->prepareStatement(sql_data);
         param_idx = 1;
-        // 绑定用户名（第一个?）
         pstmt_data->setString(param_idx++, cur_user);
-        // 绑定关键词参数（可选）
-        if (!m_post_params["keyword"].empty()) {
-            std::string like_key = "%" + m_post_params["keyword"] + "%";
+        if (!keyword.empty()) {
+            std::string like_key = "%" + keyword + "%";
             pstmt_data->setString(param_idx++, like_key);
             pstmt_data->setString(param_idx++, like_key);
         }
-        // 绑定分页参数
-        int offset = (stoi(m_post_params["page"]) - 1) * stoi(m_post_params["pageSize"]);
-        pstmt_data->setInt(param_idx++, stoi(m_post_params["pageSize"]));
+        int offset = (page - 1) * pageSize;
+        pstmt_data->setInt(param_idx++, pageSize);
         pstmt_data->setInt(param_idx++, offset);
 
         res_data = pstmt_data->executeQuery();
 
-        // 拼接符合前端要求的JSON
-        m_write_idx = 0;
-        memset(m_write_buf, 0, WRITE_BUFFER_SIZE);
-
-        // 写入JSON头部（保持前端预期的结构）
-        add_response("{\"total\":%d,\"list\":[", total);
+        std::string body;
+        body.reserve(256);
+        body.append("{\"total\":").append(std::to_string(total)).append(",\"list\":[");
 
         bool first_item = true;
         while (res_data->next()) {
             if (!first_item) {
-                add_response(",");
+                body.append(",");
             }
             first_item = false;
 
-            // 匹配前端
-            add_response(
-                "{\"planid\":%d,"
-                "\"planname\":\"%s\","
-                "\"status\":\"%s\","
-                "\"content\":\"%s\","
-                "\"deadline\":\"%s\","
-                "\"filepth\":\"%s\"}",
-                res_data->getInt("planid"),          //  planid（表主键字段）
-                res_data->getString("planname").c_str(),  // planname（计划名称字段）
-                res_data->getString("status").c_str(),    // status 
-                res_data->getString("content").c_str(),   // content 
-                res_data->getString("deadline").c_str(),  // deadline 
-                res_data->getString("filepth").c_str()    //  filepth（附件路径字段）
-            );
-
-            // 缓冲区溢出检查
-            if (m_write_idx >= WRITE_BUFFER_SIZE) {
-                std::cerr << "缓冲区已满，JSON拼接中断" << std::endl;
-                throw std::runtime_error("buffer overflow");
-            }
+            body.append("{\"planid\":")
+                .append(std::to_string(res_data->getInt("planid")))
+                .append(",\"planname\":\"")
+                .append(res_data->getString("planname"))
+                .append("\",\"status\":\"")
+                .append(res_data->getString("status"))
+                .append("\",\"content\":\"")
+                .append(res_data->getString("content"))
+                .append("\",\"deadline\":\"")
+                .append(res_data->getString("deadline"))
+                .append("\",\"filepth\":\"")
+                .append(res_data->getString("filepth"))
+                .append("\"}");
         }
-        // 写入JSON尾部
-        add_response("]}");
-        // 调试输出
-        std::cout << "生成的用户[" << cur_user << "]的JSON响应：\n" << m_write_buf << std::endl;
+        body.append("]}");
+
+        m_write_idx = 0;
+        memset(m_write_buf, 0, WRITE_BUFFER_SIZE);
+        add_status_line(200, "OK");
+        add_headers(static_cast<int>(body.size()));
+        add_response("%s", body.c_str());
+
         return true;
     } catch (sql::SQLException& e) {
         std::cerr << "SQL异常：" << e.what() << " (错误码：" << e.getErrorCode() << ")" << std::endl;
-        // 错误响应
-        add_response("{\"code\":500,\"msg\":\"数据库查询失败：%s\",\"total\":0,\"list\":[]}", e.what());
+        m_write_idx = 0;
+        memset(m_write_buf, 0, WRITE_BUFFER_SIZE);
+        add_status_line(500, "Internal Error");
+        std::string err_body = std::string("{\"code\":500,\"msg\":\"数据库查询失败：") + e.what() + "\",\"total\":0,\"list\":[]}";
+        add_headers(static_cast<int>(err_body.size()));
+        add_response("%s", err_body.c_str());
         return false;
     } 
-    // 释放所有资源
     if (res_count != nullptr) delete res_count;
     if (res_data != nullptr) delete res_data;
     if (pstmt_count != nullptr) delete pstmt_count;
@@ -659,6 +791,15 @@ bool http_handler::checkLogin(){
             std::cout<<db_passwd <<std::endl<<ss.str();
             if (db_passwd == ss.str()) {
                 cur_user = input_name;
+                {
+                    std::string sid = gen_sid();
+                    long long exp = now_sec() + 7LL*24*3600;
+                    {
+                        std::lock_guard<std::mutex> lk(g_sess_mtx);
+                        g_sessions[sid] = {cur_user, exp};
+                    }
+                    m_set_cookie = std::string("Set-Cookie: session=")+sid+"; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800\r\n";
+                }
                 return true;
             } else {
                 std::cout << "密码错误！" << std::endl;
