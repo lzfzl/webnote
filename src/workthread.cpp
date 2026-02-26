@@ -1,7 +1,10 @@
 #include "workthread.h"
 
 
-threadpoll::threadpoll(sqlPools *sqlpool,int thread_num):m_sqlpool(sqlpool){
+threadpoll::threadpoll(sqlPools *sqlpool,int thread_num)
+    : m_sqlpool(sqlpool)
+{
+    m_stop = false;
     if(thread_num<=0)thread_num=1;
     workers.reserve(thread_num);
     for(int i=0;i<thread_num;i++){
@@ -12,6 +15,7 @@ threadpoll::threadpoll(sqlPools *sqlpool,int thread_num):m_sqlpool(sqlpool){
                 {
                     std::unique_lock<std::mutex> lock_(m_mutex);
                     m_cv.wait(lock_,[this]{return m_stop||!task.empty();});
+                    if(m_stop && task.empty()) return;
                     cur_hh = task.front();
                     denug.emplace_back(cur_hh);
                     if(!cur_hh->sqlconn)cur_hh->sqlconn = m_sqlpool->getaConnect();
@@ -38,4 +42,14 @@ void threadpoll::addTask(http_handler* hh,int RorW){
     hh->RorW = RorW;
     task.push(hh);
     m_cv.notify_one();
+}
+threadpoll::~threadpoll(){
+    {
+        std::unique_lock<std::mutex> lock_(m_mutex);
+        m_stop = true;
+    }
+    m_cv.notify_all();
+    for(auto &t: workers){
+        if(t.joinable()) t.join();
+    }
 }

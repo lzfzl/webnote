@@ -4,11 +4,11 @@ webserver::~webserver(){
     close(listenfd);
     close(epollfd);
 }
-void webserver::setTimer(){
+bool webserver::setTimer(){
     m_timerfd = timerfd_create(CLOCK_REALTIME,0);
     if(m_timerfd ==-1){
         perror("timerfd_create");
-        exit(EXIT_FAILURE);
+        return false;
     }
     struct itimerspec new_value;
     new_value.it_value.tv_sec = 1;
@@ -18,20 +18,29 @@ void webserver::setTimer(){
 
     if(timerfd_settime(m_timerfd,0,&new_value,NULL)==-1){
         perror("timerfd_setting");
-        exit(EXIT_FAILURE);
+        return false;
     }
     struct epoll_event ev{};
     ev.events = EPOLLIN;
     ev.data.fd = m_timerfd;
-    epoll_ctl(epollfd,EPOLL_CTL_ADD,m_timerfd,&ev);
+    if(epoll_ctl(epollfd,EPOLL_CTL_ADD,m_timerfd,&ev)<0){
+        perror("epoll_ctl timerfd");
+        return false;
+    }
+    return true;
 }
 
-void webserver::eventListen(){
+bool webserver::eventListen(){
     listenfd = socket(AF_INET,SOCK_STREAM,0);
     if(listenfd<0){
         perror("socket");
-        return;
+        return false;
     }
+    int opt = 1;
+    setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+#ifdef SO_REUSEPORT
+    setsockopt(listenfd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt));
+#endif
     struct sockaddr_in address;
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = htonl(INADDR_ANY);//able to accept 所有接口上的连接请求,4 bytes
@@ -39,17 +48,17 @@ void webserver::eventListen(){
     int ret = bind(listenfd,(struct sockaddr *)&address,sizeof(address));
     if(ret<0){
         perror("bind");
-        return;
+        return false;
     }
     ret = listen(listenfd,5);
     if(ret<0){
         perror("listen");
-        return;
+        return false;
     }
     epollfd = epoll_create1(EPOLL_CLOEXEC);
     if(epollfd<0){
         perror("epoll_create");
-        return;
+        return false;
         }
     epoll_event ev{};
     ev.events = EPOLLIN|EPOLLET;
@@ -58,8 +67,9 @@ void webserver::eventListen(){
     fcntl(listenfd, F_SETFL, old | O_NONBLOCK);
     if(epoll_ctl(epollfd,EPOLL_CTL_ADD,listenfd,&ev)<0){
         perror("add listenfd");
-        return;
+        return false;
     }
+    return true;
 }
 
 void webserver::dealWithConn(){

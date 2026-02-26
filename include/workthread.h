@@ -10,10 +10,11 @@
 #include <type_traits>
 #include "httphandler.h"
 #include "sql_conn_pool.h"
-const int MAX_WORKER_NUMBER = 4;
+const int MAX_WORKER_NUMBER = 1;
 class threadpoll{
 public:
     threadpoll(sqlPools *sqlpool,int thread_num = MAX_WORKER_NUMBER);
+    ~threadpoll();
     void addTask(http_handler* hh,int RorW);
 private:
     std::queue<http_handler*> task;

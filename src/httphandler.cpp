@@ -3,34 +3,51 @@
 #include <unordered_map>
 #include <chrono>
 #include "session_store.h"
-
+#include <fstream>
+#include <algorithm>
+#include <string_view>
 
 char* http_handler::get_line(){
     return m_read_buf + m_start_line; 
 }
 void http_handler::init(int clientfd = -100,int epollfd = -100){
+    if(m_tmp_fd!=-1){
+        close(m_tmp_fd);
+        m_tmp_fd = -1;
+    }
+    if(!m_tmp_path.empty()){
+        unlink(m_tmp_path.c_str());
+        m_tmp_path.clear();
+    }
     m_clifd = clientfd;
     m_epollfd = epollfd;
     m_read_idx = 0;
     m_read_buf[0] = '\0';
     m_check_idx = 0;
-    m_url= "";m_version = nullptr;m_method = nullptr;
+    m_url= "";
+    m_version.clear();
+    m_method.clear();
     m_check_state = CKECK_STATE_REQUESTLINE;
     m_start_line = 0;
     m_content_length = 0;
     m_keep_alive = false;
-    m_host = nullptr;
+    m_host.clear();
     m_real_file = "";
     m_file_stat ={}; 
     m_file_address = nullptr;
     m_write_buf[0] = '\0';
     m_write_idx = 0;
+    m_content_type ="";
+    m_boundary="";
+    m_extra_headers="";
     m_iov_count = 0;
     bytes_to_send = 0;
     bytes_have_sent = 0;
     m_read_ret = NO_REQUEST;
     cur_user = "";
-    m_set_cookie.clear();
+    m_set_cookie="";
+    m_body_received = 0;
+    m_spool_to_disk = false;
     if(m_clifd!=0){
         int flags = fcntl(m_clifd, F_GETFL, 0);
         fcntl(m_clifd,F_SETFL,flags|O_NONBLOCK);
@@ -48,7 +65,15 @@ http_handler::http_handler(int clifd,int epollfd){
 }
 bool http_handler::read_once(){
     while(true){
-        int n = recv(m_clifd,m_read_buf+m_read_idx,READ_BUFFER_SIZE-m_read_idx,0);
+        int to_read = READ_BUFFER_SIZE - m_read_idx;
+        if(to_read<=0){
+            if(m_check_state==CHECK_STATE_CONTENT && m_spool_to_disk){
+                (void)parse_body(get_line());
+                continue;
+            }
+            break;
+        }
+        int n = recv(m_clifd,m_read_buf+m_read_idx,to_read,0);
         // std::cout<<n;
         if(n==0){
             return false;}
@@ -98,7 +123,7 @@ http_handler::HTTP_CODE http_handler::parse_request_line(char *text){
     m_method = method;
     m_url = url;
     m_version = version;
-    if (strcasecmp(m_method, "GET") == 0) { 
+    if (strcasecmp(m_method.c_str(), "GET") == 0) { 
         size_t query_pos = m_url.find('?');
         if (query_pos != std::string::npos) {
             std::string query_str = m_url.substr(query_pos + 1);
@@ -122,8 +147,8 @@ http_handler::HTTP_CODE http_handler::parse_request_line(char *text){
             }
         }
     }
-    if(strcasecmp(m_method,"GET")&&strcasecmp(m_method,"PUT")&&strcasecmp(m_method,"OPTIONS")&&strcasecmp(m_method,"POST"))return BAD_REQUEST;
-    if(strcasecmp(m_version,"HTTP/1.1")!=0&&strcasecmp(m_version,"HTTP/1.0")!=0)return BAD_REQUEST;
+    if(strcasecmp(m_method.c_str(),"GET")&&strcasecmp(m_method.c_str(),"PUT")&&strcasecmp(m_method.c_str(),"OPTIONS")&&strcasecmp(m_method.c_str(),"POST"))return BAD_REQUEST;
+    if(strcasecmp(m_version.c_str(),"HTTP/1.1")!=0&&strcasecmp(m_version.c_str(),"HTTP/1.0")!=0)return BAD_REQUEST;
     m_check_state = CKECK_STATE_HEADER;
     return NO_REQUEST;
 }
@@ -132,6 +157,8 @@ http_handler::HTTP_CODE http_handler::parse_headers(char *text){
     if(text[0]=='\0'){
         if(m_content_length>0){
             m_check_state = CHECK_STATE_CONTENT;
+            m_spool_to_disk = (!m_content_type.empty() && m_content_type.find("multipart/form-data")!=std::string::npos) || m_content_length > READ_BUFFER_SIZE;
+            m_body_received = 0;
             return NO_REQUEST;
         }
         return GET_REQUEST;
@@ -139,7 +166,7 @@ http_handler::HTTP_CODE http_handler::parse_headers(char *text){
     if(strncasecmp(text,"Connection:",11)==0){
         text+=11;
         while(*text==' ')text++;
-        if(!strcasecmp(m_version,"HTTP/1.1")||!strcasecmp(text,"keep-alive")) m_keep_alive = true;
+        if(!strcasecmp(m_version.c_str(),"HTTP/1.1")||!strcasecmp(text,"keep-alive")) m_keep_alive = true;
         if(strcasecmp(text,"close")==0)m_keep_alive = false;
     }
     else if(strncasecmp(text,"Content-Length:",15)==0){
@@ -151,6 +178,20 @@ http_handler::HTTP_CODE http_handler::parse_headers(char *text){
         text+=5;
         while(*text==' ')text++;
         m_host = text;
+    }
+    else if(strncasecmp(text,"Content-Type:",13)==0){
+        text+=13;
+        while(*text==' ')text++;
+        m_content_type = text;
+        size_t p = m_content_type.find("boundary=");
+        if(p!=std::string::npos){
+            std::string b = m_content_type.substr(p+9);
+            if(!b.empty() && b.front()=='"'){
+                size_t q = b.find('"',1);
+                if(q!=std::string::npos) b = b.substr(1,q-1);
+            }
+            m_boundary = b;
+        }
     }
     else if(strncasecmp(text,"Cookie:",7)==0){
         text+=7;
@@ -292,8 +333,248 @@ std::string http_handler::url_decode(const std::string& encoded){
 
 
 http_handler::HTTP_CODE http_handler::parse_body(char *text){
+    if(m_spool_to_disk){
+        int avail = m_read_idx - m_check_idx;
+        if(avail>0){
+            if(m_tmp_fd<0){
+                std::string base = "/home/lzf/wbserver/userdata/tmp";
+                struct stat st{};
+                if(stat(base.c_str(), &st)!=0){
+                    mkdir("/home/lzf/wbserver/userdata", 0755);
+                    mkdir(base.c_str(), 0755);
+                }
+                char buf[128];
+                snprintf(buf,sizeof(buf),"/home/lzf/wbserver/userdata/tmp/up_%d_%lld.bin",m_clifd,(long long)now_sec());
+                m_tmp_path = buf;
+                m_tmp_fd = open(m_tmp_path.c_str(), O_CREAT|O_TRUNC|O_WRONLY, 0600);
+                if(m_tmp_fd<0) return INTERNAL_ERROR;
+            }
+            ssize_t wr = ::write(m_tmp_fd, m_read_buf + m_check_idx, avail);
+            if(wr<0) return INTERNAL_ERROR;
+            m_body_received += (int)wr;
+            m_check_idx = m_read_idx;
+            m_read_idx = 0;
+            m_check_idx = 0;
+            m_start_line = 0;
+        }
+        if(m_body_received < m_content_length) return NO_REQUEST;
+        if(m_tmp_fd>=0){
+            close(m_tmp_fd);
+            m_tmp_fd = -1;
+        }
+        int fd = open(m_tmp_path.c_str(), O_RDONLY);
+        if(fd<0) return INTERNAL_ERROR;
+        size_t len = (size_t)m_content_length;
+        char* data = (char*)mmap(nullptr, len, PROT_READ, MAP_PRIVATE, fd, 0);
+        if(data==MAP_FAILED){
+            close(fd);
+            return INTERNAL_ERROR;
+        }
+        m_post_params.clear();
+        std::string delim = "--"+m_boundary;
+        std::string body(data, len);
+        size_t pos = 0;
+        size_t cur = body.find(delim, pos);
+        if(cur==std::string::npos){
+            munmap(data, len);
+            close(fd);
+            unlink(m_tmp_path.c_str());
+            m_tmp_path.clear();
+            return GET_REQUEST;
+        }
+        cur += delim.size();
+        std::vector<std::string> saved_names;
+        while(true){
+            if(cur < body.size() && body.substr(cur,2)=="\r\n") cur+=2;
+            if(cur+2<=body.size() && body.substr(cur,2)=="--") break;
+            size_t hdr_end = body.find("\r\n\r\n", cur);
+            if(hdr_end==std::string::npos) break;
+            std::string headers = body.substr(cur, hdr_end-cur);
+            size_t next_delim = body.find(delim, hdr_end+4);
+            if(next_delim==std::string::npos) break;
+            size_t data_end = next_delim;
+            if(data_end>=2 && body.substr(data_end-2,2)=="\r\n") data_end-=2;
+            std::string content_sv = body.substr(hdr_end+4, data_end-(hdr_end+4));
+            std::string name, filename;
+            std::string key = "Content-Disposition:";
+            size_t p = headers.find(key);
+            if(p!=std::string::npos){
+                size_t nl = headers.find("\r\n", p);
+                std::string cd(std::string(headers.substr(p, nl==std::string::npos?std::string::npos:nl-p)));
+                size_t npos = cd.find("name=");
+                if(npos!=std::string::npos){
+                    size_t s = npos+5;
+                    if(s<cd.size() && (cd[s]=='"'||cd[s]=='\'')){
+                        char q = cd[s++];
+                        size_t e = cd.find(q, s);
+                        if(e!=std::string::npos) name = cd.substr(s, e-s);
+                    }else{
+                        size_t e = cd.find(';', s);
+                        name = cd.substr(s, e==std::string::npos?std::string::npos:e-s);
+                    }
+                }
+                size_t fpos = cd.find("filename=");
+                if(fpos!=std::string::npos){
+                    size_t s = fpos+9;
+                    if(s<cd.size() && (cd[s]=='"'||cd[s]=='\'')){
+                        char q = cd[s++];
+                        size_t e = cd.find(q, s);
+                        if(e!=std::string::npos) filename = cd.substr(s, e-s);
+                    }else{
+                        size_t e = cd.find(';', s);
+                        filename = cd.substr(s, e==std::string::npos?std::string::npos:e-s);
+                    }
+                }
+            }
+            if(!filename.empty()){
+                std::string ext;
+                size_t dot = filename.find_last_of('.');
+                if(dot!=std::string::npos){
+                    ext = filename.substr(dot+1);
+                    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+                }
+                bool ok = (ext=="doc"||ext=="docx"||ext=="pdf"||ext=="jpg"||ext=="jpeg"||ext=="png");
+                if(ok){
+                    std::string user = cur_user.empty() ? std::string("guest") : cur_user;
+                    std::string dir = "/home/lzf/wbserver/userdata/"+user;
+                    struct stat st{};
+                    if(stat(dir.c_str(), &st)!=0){
+                        mkdir("/home/lzf/wbserver/userdata", 0755);
+                        mkdir(dir.c_str(), 0755);
+                    }
+                    std::string path = dir + "/" + filename;
+                    std::ofstream ofs(path, std::ios::binary);
+                    ofs.write(content_sv.data(), (std::streamsize)content_sv.size());
+                    ofs.close();
+                    saved_names.push_back(filename);
+                }
+            }else{
+                std::string val = content_sv;
+                if(name=="deadline"){
+                    for(char &ch: val){ if(ch=='T') ch=' '; }
+                    if(val.size()==16) val += ":00";
+                }
+                m_post_params[name] = val;
+            }
+            cur = next_delim + delim.size();
+            if(cur < body.size() && body.substr(cur,2)=="--") break;
+        }
+        if(!saved_names.empty()){
+            std::string all;
+            for(size_t i=0;i<saved_names.size();++i){
+                if(i) all.push_back(';');
+                all.append(saved_names[i]);
+            }
+            m_post_params["filepth"] = all;
+        }
+        munmap(data, len);
+        close(fd);
+        unlink(m_tmp_path.c_str());
+        m_tmp_path.clear();
+        m_check_idx+=m_content_length;
+        return GET_REQUEST;
+    }
     if(m_read_idx>=m_content_length+m_check_idx){
-        parseTable(text,m_content_length);
+        if(!m_content_type.empty() && m_content_type.find("multipart/form-data")!=std::string::npos && !m_boundary.empty()){
+            m_post_params.clear();
+            std::string body(text,m_content_length);
+            std::string delim = "--"+m_boundary;
+            size_t pos = 0;
+            size_t cur = body.find(delim, pos);
+            if(cur==std::string::npos){
+                m_check_idx+=m_content_length;
+                return GET_REQUEST;
+            }
+            cur += delim.size();
+            std::vector<std::string> saved_names;
+            while(true){
+                if(cur < body.size() && body.compare(cur,2,"\r\n")==0) cur+=2;
+                if(cur+2<=body.size() && body.compare(cur,2,"--")==0) break;
+                size_t hdr_end = body.find("\r\n\r\n", cur);
+                if(hdr_end==std::string::npos) break;
+                std::string headers = body.substr(cur, hdr_end-cur);
+                size_t next_delim = body.find(delim, hdr_end+4);
+                if(next_delim==std::string::npos) break;
+                size_t data_end = next_delim;
+                if(data_end>=2 && body.compare(data_end-2,2,"\r\n")==0) data_end-=2;
+                std::string content = body.substr(hdr_end+4, data_end-(hdr_end+4));
+                std::string name, filename;
+                {
+                    std::string key = "Content-Disposition:";
+                    size_t p = headers.find(key);
+                    if(p!=std::string::npos){
+                        size_t nl = headers.find("\r\n", p);
+                        std::string cd = headers.substr(p, nl==std::string::npos?std::string::npos:nl-p);
+                        size_t npos = cd.find("name=");
+                        if(npos!=std::string::npos){
+                            size_t s = npos+5;
+                            if(s<cd.size() && (cd[s]=='"'||cd[s]=='\'')){
+                                char q = cd[s++];
+                                size_t e = cd.find(q, s);
+                                if(e!=std::string::npos) name = cd.substr(s, e-s);
+                            }else{
+                                size_t e = cd.find(';', s);
+                                name = cd.substr(s, e==std::string::npos?std::string::npos:e-s);
+                            }
+                        }
+                        size_t fpos = cd.find("filename=");
+                        if(fpos!=std::string::npos){
+                            size_t s = fpos+9;
+                            if(s<cd.size() && (cd[s]=='"'||cd[s]=='\'')){
+                                char q = cd[s++];
+                                size_t e = cd.find(q, s);
+                                if(e!=std::string::npos) filename = cd.substr(s, e-s);
+                            }else{
+                                size_t e = cd.find(';', s);
+                                filename = cd.substr(s, e==std::string::npos?std::string::npos:e-s);
+                            }
+                        }
+                    }
+                }
+                if(!filename.empty()){
+                    std::string ext;
+                    size_t dot = filename.find_last_of('.');
+                    if(dot!=std::string::npos) {
+                        ext = filename.substr(dot+1);
+                        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+                    }
+                    bool ok = (ext=="doc"||ext=="docx"||ext=="pdf"||ext=="jpg"||ext=="jpeg"||ext=="png");
+                    if(ok){
+                        std::string user = cur_user.empty() ? std::string("guest") : cur_user;
+                        std::string dir = "/home/lzf/wbserver/userdata/"+user;
+                        struct stat st{};
+                        if(stat(dir.c_str(), &st)!=0){
+                            mkdir("/home/lzf/wbserver/userdata", 0755);
+                            mkdir(dir.c_str(), 0755);
+                        }
+                        std::string path = dir + "/" + filename;
+                        std::ofstream ofs(path, std::ios::binary);
+                        ofs.write(content.data(), (std::streamsize)content.size());
+                        ofs.close();
+                        saved_names.push_back(filename);
+                    }
+                }else{
+                    std::string val = content;
+                    if(name=="deadline"){
+                        for(char &ch: val){ if(ch=='T') ch=' '; }
+                        if(val.size()==16) val += ":00";
+                    }
+                    m_post_params[name] = val;
+                }
+                cur = next_delim + delim.size();
+                if(cur < body.size() && body.compare(cur,2,"--")==0) break;
+            }
+            if(!saved_names.empty()){
+                std::string all;
+                for(size_t i=0;i<saved_names.size();++i){
+                    if(i) all.push_back(';');
+                    all.append(saved_names[i]);
+                }
+                m_post_params["filepth"] = all;
+            }
+        }else{
+            parseTable(text,m_content_length);
+        }
         m_check_idx+=m_content_length;
         return GET_REQUEST;
     }
@@ -302,43 +583,44 @@ http_handler::HTTP_CODE http_handler::parse_body(char *text){
 
 http_handler::HTTP_CODE http_handler::process_read(){
     LINE_STATUS line_state = LINE_OK;
-    HTTP_CODE ret = NO_REQUEST;
-    while((m_check_state == CHECK_STATE_CONTENT && line_state == LINE_OK)||
-        (line_state = parse_line()) == LINE_OK){
+    while(true){
+        if(m_check_state == CHECK_STATE_CONTENT){
             char *text = get_line();
             m_start_line = m_check_idx;
-            HTTP_CODE ret;
-            switch (m_check_state)
-            {
+            HTTP_CODE ret = parse_body(text);
+            if(ret==GET_REQUEST) return do_process();
+            return NO_REQUEST;
+        }
+        line_state = parse_line();
+        if(line_state != LINE_OK) break;
+        char *text = get_line();
+        m_start_line = m_check_idx;
+        HTTP_CODE ret;
+        switch (m_check_state){
             case CKECK_STATE_REQUESTLINE:
                 ret = parse_request_line(text);
-                if(ret==BAD_REQUEST)return BAD_REQUEST;
+                if(ret==BAD_REQUEST) return BAD_REQUEST;
                 break;
             case CKECK_STATE_HEADER:
                 ret = parse_headers(text);
-                if(ret==BAD_REQUEST)return BAD_REQUEST;
-                else if(ret==GET_REQUEST)return do_process();
-                break;
-            case CHECK_STATE_CONTENT:
-                ret = parse_body(text);
-                if(ret==GET_REQUEST)return do_process();
+                if(ret==BAD_REQUEST) return BAD_REQUEST;
+                else if(ret==GET_REQUEST) return do_process();
                 break;
             default:
                 return INTERNAL_ERROR;
-                break;
-            }
         }
+    }
     return NO_REQUEST;
 }
 http_handler::HTTP_CODE http_handler::do_process(){
-    if(strcasecmp(m_method,"OPTIONS")== 0){
+    if(strcasecmp(m_method.c_str(),"OPTIONS")== 0){
         return OPTIONS;
     }
     std::string url = std::string(m_url).empty()?"/":m_url;
     if(url=="/")url = "/index.html";
     else if(url=="/api/signup"){
-        if(strcasecmp(m_method,"OPTIONS")== 0)return OPTIONS;
-        if(strcasecmp(m_method,"POST")== 0){
+        if(strcasecmp(m_method.c_str(),"OPTIONS")== 0)return OPTIONS;
+        if(strcasecmp(m_method.c_str(),"POST")== 0){
             if(signUp()){
                 return SUCCESSSIGNUP;
             }
@@ -348,8 +630,8 @@ http_handler::HTTP_CODE http_handler::do_process(){
         }
     }
     else if(url=="/api/loginbutton"){
-        if(strcasecmp(m_method,"OPTIONS")== 0)return OPTIONS;
-        if(strcasecmp(m_method,"POST")== 0){
+        if(strcasecmp(m_method.c_str(),"OPTIONS")== 0)return OPTIONS;
+        if(strcasecmp(m_method.c_str(),"POST")== 0){
             if(checkLogin()){
                 return SUCCESSLOGIN;
             }
@@ -359,7 +641,7 @@ http_handler::HTTP_CODE http_handler::do_process(){
         }
     }
     else if(url =="/api/purchase-plans"){
-        if(strcasecmp(m_method,"POST")==0){
+        if(strcasecmp(m_method.c_str(),"POST")==0){
             return ADDPLAN;
         }
         return DATA;
@@ -371,7 +653,53 @@ http_handler::HTTP_CODE http_handler::do_process(){
 
     }
     else if(url =="/api/downfile"){
-
+        if(strcasecmp(m_method.c_str(),"GET")!=0) return BAD_REQUEST;
+        std::string planid = m_post_params["planid"];
+        std::string filename = m_post_params["filename"];
+        if(cur_user.empty() || planid.empty() || filename.empty()) return BAD_REQUEST;
+        sql::PreparedStatement* pstmt = nullptr;
+        sql::ResultSet* rs = nullptr;
+        try{
+            pstmt = sqlconn->prepareStatement("SELECT filepth FROM plan WHERE username=? AND planid=?");
+            pstmt->setString(1, cur_user);
+            pstmt->setInt(2, std::stoi(planid));
+            rs = pstmt->executeQuery();
+            std::string filelist;
+            if(rs->next()){
+                filelist = rs->getString("filepth");
+            }else{
+                if(rs) delete rs;
+                if(pstmt) delete pstmt;
+                return NO_SOURCE;
+            }
+            if(rs) delete rs;
+            if(pstmt) delete pstmt;
+            bool allowed = false;
+            size_t start = 0;
+            while(true){
+                size_t pos = filelist.find(';', start);
+                std::string f = filelist.substr(start, pos==std::string::npos?std::string::npos:pos-start);
+                if(f==filename){ allowed = true; break; }
+                if(pos==std::string::npos) break;
+                start = pos+1;
+            }
+            if(!allowed) return NO_SOURCE;
+            std::string path = std::string("/home/lzf/wbserver/userdata/")+cur_user+"/"+filename;
+            if(stat(path.c_str(), &m_file_stat)<0) return NO_SOURCE;
+            int fd = open(path.c_str(), O_RDONLY);
+            if(fd<0) return NO_SOURCE;
+            m_file_address = (char*)mmap(nullptr,m_file_stat.st_size,PROT_READ,MAP_PRIVATE,fd,0);
+            if(m_file_address==MAP_FAILED){
+                m_file_address = nullptr;
+                return INTERNAL_ERROR;
+            }
+            m_extra_headers = "Content-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=\""+filename+"\"\r\n";
+            return FILE_REQUEST;
+        }catch(...){
+            if(rs) delete rs;
+            if(pstmt) delete pstmt;
+            return INTERNAL_ERROR;
+        }
     }
     m_real_file = FILE_PATH+url;
     if(stat(m_real_file.c_str(),&m_file_stat)<0){
@@ -419,6 +747,10 @@ bool http_handler::add_status_line(int status,const char *title){
 } 
 bool http_handler::add_headers(int content_len){
     bool ok = add_content_length(content_len)&&add_linger();
+    if(!m_extra_headers.empty()){
+        ok &= add_response("%s", m_extra_headers.c_str());
+        m_extra_headers.clear();
+    }
     if(!m_set_cookie.empty()){
         ok &= add_response("%s", m_set_cookie.c_str());
     }
@@ -535,6 +867,15 @@ bool http_handler::addPlan(){
     std::string deadline = m_post_params["deadline"];
     std::string status = m_post_params["status"];
     std::string filepth = m_post_params["filepth"];
+    if(cur_user.empty()){
+        m_write_idx = 0;
+        memset(m_write_buf,0,WRITE_BUFFER_SIZE);
+        add_status_line(200,"OK");
+        std::string body = "{\"success\":false,\"message\":\"未登录或会话已过期\"}";
+        add_headers((int)body.size());
+        add_response("%s",body.c_str());
+        return true;
+    }
     if(planname.empty()){
         m_write_idx = 0;
         memset(m_write_buf,0,WRITE_BUFFER_SIZE);
@@ -873,6 +1214,14 @@ bool http_handler::write(){
     }
 }
 void http_handler::close_conn(){
+    if(m_tmp_fd!=-1){
+        close(m_tmp_fd);
+        m_tmp_fd = -1;
+    }
+    if(!m_tmp_path.empty()){
+        unlink(m_tmp_path.c_str());
+        m_tmp_path.clear();
+    }
     close_map();
     epoll_ctl(m_epollfd,EPOLL_CTL_DEL,m_clifd,0);
     close(m_clifd);

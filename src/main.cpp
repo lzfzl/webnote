@@ -1,8 +1,8 @@
 #include "webserver.h"
 
 int main(int argc,char* argv[]){
-    webserver sv;
-    sv.eventListen();
-    sv.setTimer();
-    sv.eventAccept();
+    std::unique_ptr<webserver> sv(new webserver());
+    if(!sv->eventListen()) return 1;
+    if(!sv->setTimer()) return 1;
+    sv->eventAccept();
 }

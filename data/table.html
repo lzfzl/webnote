@@ -105,16 +105,14 @@
             border-radius: 4px;
             font-size: 12px;
         }
-        .tag-receive {
-            background-color: #fff2f0;
-            color: #f5222d;
-            border: 1px solid #ffccc7;
-        }
-        .tag-pay {
-            background-color: #f6ffed;
-            color: #52c41a;
-            border: 1px solid #b7eb8f;
-        }
+        .download-btn { padding:4px 10px; background:#2f54eb; color:#fff; border:none; border-radius:4px; cursor:pointer; font-size:12px }
+        .download-btn:disabled { background:#ccc; cursor:not-allowed }
+        .modal-mask{position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,.3);display:none;align-items:center;justify-content:center;z-index:9998}
+        .modal{background:#fff;border-radius:6px;min-width:320px;max-width:480px;padding:16px;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+        .modal-title{font-size:16px;margin-bottom:8px}
+        .modal-body{max-height:280px;overflow:auto}
+        .modal-actions{display:flex;gap:12px;justify-content:flex-end;margin-top:12px}
+        .chk-list{display:flex;flex-direction:column;gap:6px}
         .operation a {
             color: #2f54eb;
             text-decoration: none;
@@ -342,7 +340,6 @@
             return;
         }
 
-        // 状态枚举值映射（数据库值 → 前端展示文本+样式）
         const statusMap = {
             'unfinished': { text: '未完成', class: 'status-pending' },
             'finished': { text: '已完成', class: 'status-completed' },
@@ -352,22 +349,17 @@
 
         data.list.forEach(item => {
             const tr = document.createElement('tr');
-            
-            // 获取状态对应的展示文本和样式
             const statusInfo = statusMap[item.status] || { text: item.status, class: 'status-pending' };
-            // 附件标签（filepth对应receive/pay）
-            const attachmentConfig = item.filepth === "receive" 
-                ? { class: "tag-receive", text: "↓ 收款" } 
-                : { class: "tag-pay", text: "↑ 付款" };
+            const files = (item.filepth||'').trim();
+            const fileArr = files ? files.split(';').filter(Boolean) : [];
             
-            // 核心：仅保留数据库核心字段，去掉username列
             tr.innerHTML = `
                 <td><input type="checkbox" class="item-checkbox" data-id="${item.planid}"></td>
                 <td>${item.planname}</td> <!-- 计划名称（planname） -->
                 <td><span class="status ${statusInfo.class}">${statusInfo.text}</span></td> <!-- 计划状态（status） -->
                 <td>${item.content || '-'}</td> <!-- 计划内容（content），空值显示- -->
                 <td>${item.deadline ? formatDatetime(item.deadline) : '-'}</td> <!-- 截止日期（deadline），格式化 -->
-                <td><span class="tag ${attachmentConfig.class}">${attachmentConfig.text}</span></td> <!-- 计划附件（filepth） -->
+                <td>${fileArr.length>0?`<button class="download-btn" data-id="${item.planid}" data-files="${fileArr.join(';')}">下载</button>`:'-'}</td>
                 <td class="operation">
                     <span class="manage-btn" data-id="${item.planid}">管理</span>
                     <span class="delete-btn" data-id="${item.planid}">删除</span>
@@ -468,6 +460,14 @@
 
         // 4. 初始化操作按钮事件（管理、删除）
         function initOperationEvents() {
+            document.querySelectorAll('.download-btn').forEach(btn=>{
+                btn.addEventListener('click', function(){
+                    const planId = this.dataset.id;
+                    const files = (this.dataset.files||'').split(';').filter(Boolean);
+                    if(files.length===0){ showToast('无可下载附件', false); return; }
+                    openSelectModal(planId, files);
+                });
+            });
             // 管理按钮
             document.querySelectorAll('.manage-btn').forEach(btn => {
                 btn.addEventListener('click', async function() {
@@ -623,6 +623,41 @@
             // 加载初始数据
             await fetchData();
         });
+
+        function openSelectModal(planId, files){
+            let mask = document.getElementById('modalMask');
+            if(!mask){
+                mask = document.createElement('div');
+                mask.id = 'modalMask';
+                mask.className = 'modal-mask';
+                mask.innerHTML = '<div class="modal"><div class="modal-title">选择要下载的附件</div><div class="modal-body"><div class="chk-list" id="chkList"></div></div><div class="modal-actions"><button id="modalCancel" class="btn btn-default">取消</button><button id="modalOk" class="btn btn-primary">下载</button></div></div>';
+                document.body.appendChild(mask);
+            }
+            const list = mask.querySelector('#chkList');
+            list.innerHTML = '';
+            files.forEach(f=>{
+                const id = 'f_'+Math.random().toString(36).slice(2);
+                const div = document.createElement('label');
+                div.innerHTML = `<input type="checkbox" data-name="${f}" checked> ${f}`;
+                list.appendChild(div);
+            });
+            const hide = ()=>{ mask.style.display='none'; };
+            mask.querySelector('#modalCancel').onclick = hide;
+            mask.querySelector('#modalOk').onclick = ()=>{
+                const sel = Array.from(list.querySelectorAll('input[type="checkbox"]:checked')).map(i=>i.getAttribute('data-name'));
+                if(sel.length===0){ showToast('请选择要下载的文件', false); return; }
+                sel.forEach(name=>{
+                    const a = document.createElement('a');
+                    a.href = `./api/downfile?planid=${encodeURIComponent(planId)}&filename=${encodeURIComponent(name)}`;
+                    a.download = name;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                });
+                hide();
+            };
+            mask.style.display='flex';
+        }
     </script>
 </body>
 </html>

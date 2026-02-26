@@ -29,8 +29,8 @@
 #include <mutex>
 #include <chrono>
 #include "json.hpp"
-const int READ_BUFFER_SIZE = 1024;
-const int WRITE_BUFFER_SIZE = 1024;
+const int READ_BUFFER_SIZE = 512*1024;
+const int WRITE_BUFFER_SIZE = 2*1024;
 const std::string FILE_PATH = "/home/lzf/wbserver/data";
 
 
@@ -41,7 +41,7 @@ public:
     int m_clifd;
     char m_read_buf[READ_BUFFER_SIZE];
     int m_check_idx = 0;
-    char *m_version,*m_method;
+    std::string m_version, m_method;
     std::string m_url;
     enum LINE_STATUS{LINE_OK,LINE_OPEN,LINE_BAD};
     enum HTTP_CODE{DATA,BAD_REQUEST,NO_REQUEST,GET_REQUEST,INTERNAL_ERROR,FILE_REQUEST,NO_SOURCE,OPTIONS,WRONGLOGIN,SUCCESSLOGIN,SUCCESSSIGNUP,WRONGSIGNUP,CREATEPLAN,ADDPLAN};
@@ -50,12 +50,15 @@ public:
     int m_start_line = 0;
     int m_content_length = 0;
     bool m_keep_alive = false;
-    char *m_host;
+    std::string m_host;
     std::string m_real_file;
     struct stat m_file_stat;
     char* m_file_address;
     char m_write_buf[WRITE_BUFFER_SIZE];
     int m_write_idx = 0;
+    std::string m_content_type;
+    std::string m_boundary;
+    std::string m_extra_headers;
     struct iovec iov[2];
     int m_iov_count;
     int bytes_to_send;
@@ -65,6 +68,10 @@ public:
     HTTP_CODE m_read_ret;
     std::unordered_map<std::string, std::string> m_post_params;
     std::string m_set_cookie;
+    int m_body_received = 0;
+    bool m_spool_to_disk = false;
+    int m_tmp_fd = -1;
+    std::string m_tmp_path;
     char *get_line();
     void init(int clientfd,int epollfd);
     http_handler(int clientfd,int epollfd);

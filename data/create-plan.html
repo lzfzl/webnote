@@ -29,14 +29,6 @@
       el.className = 'toast ' + (ok?'toast-success':'toast-error') + ' toast-show';
       setTimeout(()=>{ el.className='toast'; }, 3000);
     }
-    async function requestApi(url, method='GET', data={}){
-      const opts = { method, headers:{'Content-Type':'application/json'} };
-      if(method!=='GET'){ opts.body = JSON.stringify(data); }
-      const res = await fetch(url, opts);
-      const json = await res.json().catch(()=>({}));
-      if(!res.ok){ throw new Error(json.message||'请求失败'); }
-      return json;
-    }
     function formatDatetimeLocalToSql(dt){
       if(!dt) return '';
       dt = dt.replace('T',' ');
@@ -48,12 +40,20 @@
       const content = document.getElementById('content').value.trim();
       const deadline = formatDatetimeLocalToSql(document.getElementById('deadline').value);
       const status = document.getElementById('status').value;
-      const filepth = document.querySelector('input[name="filepth"]:checked')?.value || '';
       if(!planname){ showToast('请填写计划名称', false); return; }
       try{
         const btn = document.getElementById('saveBtn');
         btn.disabled = true;
-        const resp = await requestApi('./api/purchase-plans', 'POST', { planname, content, deadline, status, filepth });
+        const fd = new FormData();
+        fd.append('planname', planname);
+        fd.append('content', content);
+        fd.append('deadline', deadline);
+        fd.append('status', status);
+        const files = document.getElementById('attachments').files;
+        for(let i=0;i<files.length;i++){ fd.append('files', files[i], files[i].name); }
+        const res = await fetch('./api/purchase-plans', { method:'POST', body: fd });
+        const resp = await res.json().catch(()=>({}));
+        if(!res.ok){ throw new Error(resp.message||'请求失败'); }
         if(resp && resp.success){
           showToast('保存成功');
           setTimeout(()=>{ window.location.href = './table.html'; }, 800);
@@ -97,9 +97,8 @@
       </select>
     </div>
     <div class="form-item">
-      <label>计划附件</label>
-      <label><input type="radio" name="filepth" value="receive"> 收款</label>
-      <label style="margin-left:12px;"><input type="radio" name="filepth" value="pay"> 付款</label>
+      <label for="attachments">计划附件</label>
+      <input id="attachments" type="file" multiple accept=".doc,.docx,.pdf,.jpg,.jpeg,.png">
     </div>
     <div class="actions">
       <button id="saveBtn" class="btn btn-primary" onclick="onSubmit()">保存</button>

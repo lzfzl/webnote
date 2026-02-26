@@ -11,13 +11,13 @@
 #include "workthread.h"
 #include "timer.h"
 #include "sql_conn_pool.h"
-const int MAX_EVENT_NUMBER = 1024;
-const int MAX_CONNECT_NUMBER = 1024;
+const int MAX_EVENT_NUMBER = 128;
+const int MAX_CONNECT_NUMBER = 64;
 class webserver{
 public:
     webserver();
-    void eventListen();
-    void setTimer();
+    bool eventListen();
+    bool setTimer();
     void eventAccept();
     ~webserver();
 private:
