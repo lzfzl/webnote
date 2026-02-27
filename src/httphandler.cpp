@@ -147,7 +147,11 @@ http_handler::HTTP_CODE http_handler::parse_request_line(char *text){
             }
         }
     }
-    if(strcasecmp(m_method.c_str(),"GET")&&strcasecmp(m_method.c_str(),"PUT")&&strcasecmp(m_method.c_str(),"OPTIONS")&&strcasecmp(m_method.c_str(),"POST"))return BAD_REQUEST;
+    if(strcasecmp(m_method.c_str(),"GET")
+        && strcasecmp(m_method.c_str(),"PUT")
+        && strcasecmp(m_method.c_str(),"OPTIONS")
+        && strcasecmp(m_method.c_str(),"POST")
+        && strcasecmp(m_method.c_str(),"DELETE")) return BAD_REQUEST;
     if(strcasecmp(m_version.c_str(),"HTTP/1.1")!=0&&strcasecmp(m_version.c_str(),"HTTP/1.0")!=0)return BAD_REQUEST;
     m_check_state = CKECK_STATE_HEADER;
     return NO_REQUEST;
@@ -652,6 +656,19 @@ http_handler::HTTP_CODE http_handler::do_process(){
     else if(url =="/api/alterbutton"){
 
     }
+    else if(url.size() > std::string("/api/purchase-plans/").size() 
+            && url.compare(0, std::string("/api/purchase-plans/").size(), "/api/purchase-plans/") == 0){
+        const std::string prefix = "/api/purchase-plans/";
+        std::string tail = url.substr(prefix.size());
+        if(!tail.empty() && tail.find('/') == std::string::npos){
+            bool all_digits = true;
+            for(char c: tail){ if(c<'0' || c>'9'){ all_digits = false; break; } }
+            if(all_digits && strcasecmp(m_method.c_str(),"DELETE")==0){
+                m_post_params["planid"] = tail;
+                return DELETEPLAN;
+            }
+        }
+    }
     else if(url =="/api/downfile"){
         if(strcasecmp(m_method.c_str(),"GET")!=0) return BAD_REQUEST;
         std::string planid = m_post_params["planid"];
@@ -733,7 +750,7 @@ bool http_handler::add_response(const char* fmt,...){
 bool http_handler::add_options_header(){
     bool ret = true;
     ret &= add_response("Access-Control-Allow-Origin: http://localhost:8080\r\n");
-    ret &= add_response("Access-Control-Allow-Methods: POST, OPTIONS\r\n");
+    ret &= add_response("Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS\r\n");
     ret &= add_response("Access-Control-Allow-Headers: Content-Type\r\n");
     ret &= add_response("Access-Control-Max-Age: 86400\r\n");
     ret &= add_response("Content-Length: 0\r\n");
@@ -855,6 +872,9 @@ bool http_handler::process_write(){
     else if(ret == ADDPLAN){
         if(!addPlan())return false;
     }
+    else if(ret == DELETEPLAN){
+        if(!deletePlan())return false;
+    }
     iov[0].iov_base = m_write_buf;
     iov[0].iov_len = m_write_idx;
     m_iov_count = 1;
@@ -939,6 +959,82 @@ bool http_handler::addPlan(){
         if(rs) delete rs;
         if(pstmt) delete pstmt;
         return false;
+    }
+}
+bool http_handler::deletePlan(){
+    std::string planid = m_post_params["planid"];
+    if(cur_user.empty()){
+        m_write_idx = 0;
+        memset(m_write_buf,0,WRITE_BUFFER_SIZE);
+        add_status_line(200,"OK");
+        std::string body = "{\"success\":false,\"message\":\"未登录或会话已过期\"}";
+        add_headers((int)body.size());
+        add_response("%s",body.c_str());
+        return true;
+    }
+    if(planid.empty()){
+        m_write_idx = 0;
+        memset(m_write_buf,0,WRITE_BUFFER_SIZE);
+        add_status_line(400,"Bad Request");
+        std::string body = "{\"success\":false,\"message\":\"planid required\"}";
+        add_headers((int)body.size());
+        add_response("%s",body.c_str());
+        return true;
+    }
+    sql::PreparedStatement* pstmt = nullptr;
+    sql::ResultSet* rs = nullptr;
+    try{
+        pstmt = sqlconn->prepareStatement("SELECT filepth FROM plan WHERE username=? AND planid=?");
+        pstmt->setString(1, cur_user);
+        pstmt->setInt(2, std::stoi(planid));
+        rs = pstmt->executeQuery();
+        std::string filelist;
+        if(rs->next()){
+            filelist = rs->getString("filepth");
+        }
+        if(rs){ delete rs; rs = nullptr; }
+        if(pstmt){ delete pstmt; pstmt = nullptr; }
+        if(!filelist.empty()){
+            size_t start = 0;
+            while(true){
+                size_t pos = filelist.find(';', start);
+                std::string f = filelist.substr(start, pos==std::string::npos?std::string::npos:pos-start);
+                if(!f.empty()){
+                    std::string path = std::string("/home/lzf/wbserver/userdata/")+cur_user+"/"+f;
+                    unlink(path.c_str());
+                }
+                if(pos==std::string::npos) break;
+                start = pos+1;
+            }
+        }
+        pstmt = sqlconn->prepareStatement("DELETE FROM plan WHERE username=? AND planid=?");
+        pstmt->setString(1, cur_user);
+        pstmt->setInt(2, std::stoi(planid));
+        int affected = pstmt->executeUpdate();
+        if(pstmt){ delete pstmt; pstmt = nullptr; }
+        m_write_idx = 0;
+        memset(m_write_buf,0,WRITE_BUFFER_SIZE);
+        add_status_line(200,"OK");
+        if(affected>0){
+            std::string body = "{\"success\":true}";
+            add_headers((int)body.size());
+            add_response("%s",body.c_str());
+        }else{
+            std::string body = "{\"success\":false,\"message\":\"记录不存在或无权限\"}";
+            add_headers((int)body.size());
+            add_response("%s",body.c_str());
+        }
+        return true;
+    }catch(sql::SQLException& e){
+        if(rs) delete rs;
+        if(pstmt) delete pstmt;
+        m_write_idx = 0;
+        memset(m_write_buf,0,WRITE_BUFFER_SIZE);
+        add_status_line(500,"Internal Error");
+        std::string body = std::string("{\"success\":false,\"message\":\"")+e.what()+"\"}";
+        add_headers((int)body.size());
+        add_response("%s",body.c_str());
+        return true;
     }
 }
 bool http_handler::signUp(){
