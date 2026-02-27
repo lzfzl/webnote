@@ -29,6 +29,6 @@ private:
     threadpoll tp;
     struct epoll_event events[MAX_EVENT_NUMBER];
     void dealWithConn();
-    void dealWith(int clientfd);
+    void dealWith(int clientfd,int RorW);
     http_handler conn[MAX_CONNECT_NUMBER];
 };

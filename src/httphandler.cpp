@@ -650,12 +650,6 @@ http_handler::HTTP_CODE http_handler::do_process(){
         }
         return DATA;
     }
-    else if(url =="/api/purchase-plans/create"){
-        return CREATEPLAN;
-    }
-    else if(url =="/api/alterbutton"){
-
-    }
     else if(url.size() > std::string("/api/purchase-plans/").size() 
             && url.compare(0, std::string("/api/purchase-plans/").size(), "/api/purchase-plans/") == 0){
         const std::string prefix = "/api/purchase-plans/";
@@ -663,9 +657,11 @@ http_handler::HTTP_CODE http_handler::do_process(){
         if(!tail.empty() && tail.find('/') == std::string::npos){
             bool all_digits = true;
             for(char c: tail){ if(c<'0' || c>'9'){ all_digits = false; break; } }
-            if(all_digits && strcasecmp(m_method.c_str(),"DELETE")==0){
+            if(all_digits){
                 m_post_params["planid"] = tail;
-                return DELETEPLAN;
+                if(strcasecmp(m_method.c_str(),"PUT")==0) return UPDATEPLAN;
+                if(strcasecmp(m_method.c_str(),"DELETE")==0) return DELETEPLAN;
+                if(strcasecmp(m_method.c_str(),"GET")==0) return SINGLEPLAN;
             }
         }
     }
@@ -874,6 +870,12 @@ bool http_handler::process_write(){
     }
     else if(ret == DELETEPLAN){
         if(!deletePlan())return false;
+    }
+    else if(ret == UPDATEPLAN){
+        if(!updatePlan())return false;
+    }
+    else if(ret == SINGLEPLAN){
+        if(!getSinglePlan())return false;
     }
     iov[0].iov_base = m_write_buf;
     iov[0].iov_len = m_write_idx;
@@ -1344,6 +1346,158 @@ bool http_handler::process(){
     }
 
     return true;
+}
+bool http_handler::updatePlan(){
+    std::string planid = m_post_params["planid"];
+    std::string planname = m_post_params["planname"];
+    std::string content = m_post_params["content"];
+    std::string deadline = m_post_params["deadline"];
+    std::string status = m_post_params["status"];
+    std::string filepth = m_post_params["filepth"];
+    
+    if(cur_user.empty()){
+        m_write_idx = 0;
+        memset(m_write_buf,0,WRITE_BUFFER_SIZE);
+        add_status_line(200,"OK");
+        std::string body = "{\"success\":false,\"message\":\"未登录或会话已过期\"}";
+        add_headers((int)body.size());
+        add_response("%s",body.c_str());
+        return true;
+    }
+    if(planid.empty()){
+        m_write_idx = 0;
+        memset(m_write_buf,0,WRITE_BUFFER_SIZE);
+        add_status_line(400,"Bad Request");
+        std::string body = "{\"success\":false,\"message\":\"planid required\"}";
+        add_headers((int)body.size());
+        add_response("%s",body.c_str());
+        return true;
+    }
+    if(planname.empty()){
+        m_write_idx = 0;
+        memset(m_write_buf,0,WRITE_BUFFER_SIZE);
+        add_status_line(400,"Bad Request");
+        std::string body = "{\"success\":false,\"message\":\"planname required\"}";
+        add_headers((int)body.size());
+        add_response("%s",body.c_str());
+        return true;
+    }
+    if(status.empty()) status = "unfinished";
+    if(!deadline.empty()){
+        for(char &ch: deadline){ if(ch=='T') ch = ' '; }
+        if(deadline.size()==16) deadline += ":00";
+    }
+    sql::PreparedStatement* pstmt = nullptr;
+    sql::ResultSet* rs = nullptr;
+    try{
+        std::string sql = "UPDATE plan SET planname=?, content=?, deadline=?, status=?, filepth=CONCAT(IFNULL(filepth,''), IF(IFNULL(filepth,'')='','', ';'), ?) WHERE username=? AND planid=?";
+        pstmt = sqlconn->prepareStatement(sql);
+        pstmt->setString(1, planname);
+        pstmt->setString(2, content);
+        pstmt->setString(3, deadline);
+        pstmt->setString(4, status);
+        pstmt->setString(5, filepth);
+        pstmt->setString(6, cur_user);
+        pstmt->setInt(7, std::stoi(planid));
+        int affected_rows = pstmt->executeUpdate();
+        if(affected_rows > 0){
+            m_write_idx = 0;
+            memset(m_write_buf,0,WRITE_BUFFER_SIZE);
+            add_status_line(200,"OK");
+            std::string body = "{\"success\":true}";
+            add_headers((int)body.size());
+            add_response("%s",body.c_str());
+            if(pstmt) delete pstmt;
+            return true;
+        }else{
+            m_write_idx = 0;
+            memset(m_write_buf,0,WRITE_BUFFER_SIZE);
+            add_status_line(404,"Not Found");
+            std::string body = "{\"success\":false,\"message\":\"记录不存在或无权限\"}";
+            add_headers((int)body.size());
+            add_response("%s",body.c_str());
+            if(pstmt) delete pstmt;
+            return true;
+        }
+    }catch(sql::SQLException& e){
+        m_write_idx = 0;
+        memset(m_write_buf,0,WRITE_BUFFER_SIZE);
+        add_status_line(500,"Internal Error");
+        std::string body = std::string("{\"success\":false,\"message\":\"")+e.what()+"\"}";
+        add_headers((int)body.size());
+        add_response("%s",body.c_str());
+        if(pstmt) delete pstmt;
+        return false;
+    }
+}
+bool http_handler::getSinglePlan(){
+    std::string planid = m_post_params["planid"];
+    if(cur_user.empty()){
+        m_write_idx = 0;
+        memset(m_write_buf,0,WRITE_BUFFER_SIZE);
+        add_status_line(200,"OK");
+        std::string body = "{\"success\":false,\"message\":\"未登录或会话已过期\"}";
+        add_headers((int)body.size());
+        add_response("%s",body.c_str());
+        return true;
+    }
+    if(planid.empty()){
+        m_write_idx = 0;
+        memset(m_write_buf,0,WRITE_BUFFER_SIZE);
+        add_status_line(400,"Bad Request");
+        std::string body = "{\"success\":false,\"message\":\"planid required\"}";
+        add_headers((int)body.size());
+        add_response("%s",body.c_str());
+        return true;
+    }
+    sql::PreparedStatement* pstmt = nullptr;
+    sql::ResultSet* rs = nullptr;
+    try{
+        pstmt = sqlconn->prepareStatement("SELECT planid, planname, status, content, deadline, filepth FROM plan WHERE username=? AND planid=?");
+        pstmt->setString(1, cur_user);
+        pstmt->setInt(2, std::stoi(planid));
+        rs = pstmt->executeQuery();
+        if(rs->next()){
+            nlohmann::json j;
+            j["success"] = true;
+            nlohmann::json data;
+            data["planid"] = rs->getInt("planid");
+            data["planname"] = rs->getString("planname");
+            data["status"] = rs->getString("status");
+            data["content"] = rs->getString("content");
+            data["deadline"] = rs->getString("deadline");
+            data["filepth"] = rs->getString("filepth");
+            j["data"] = data;
+            
+            std::string body = j.dump();
+            m_write_idx = 0;
+            memset(m_write_buf,0,WRITE_BUFFER_SIZE);
+            add_status_line(200,"OK");
+            add_headers((int)body.size());
+            add_response("%s",body.c_str());
+            delete rs; delete pstmt;
+            return true;
+        }else{
+            m_write_idx = 0;
+            memset(m_write_buf,0,WRITE_BUFFER_SIZE);
+            add_status_line(404,"Not Found");
+            std::string body = "{\"success\":false,\"message\":\"记录不存在\"}";
+            add_headers((int)body.size());
+            add_response("%s",body.c_str());
+            delete rs; delete pstmt;
+            return true;
+        }
+    }catch(sql::SQLException& e){
+        m_write_idx = 0;
+        memset(m_write_buf,0,WRITE_BUFFER_SIZE);
+        add_status_line(500,"Internal Error");
+        std::string body = std::string("{\"success\":false,\"message\":\"")+e.what()+"\"}";
+        add_headers((int)body.size());
+        add_response("%s",body.c_str());
+        if(rs) delete rs;
+        if(pstmt) delete pstmt;
+        return false;
+    }
 }
 //     
 //     if(!write())return false;

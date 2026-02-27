@@ -470,17 +470,9 @@
             });
             // 管理按钮
             document.querySelectorAll('.manage-btn').forEach(btn => {
-                btn.addEventListener('click', async function() {
+                btn.addEventListener('click', function() {
                     const planId = this.dataset.id;
-                    try {
-                        // 调用管理计划接口
-                        const result = await requestApi(`./api/purchase-plans/${planId}/manage`, 'GET');
-                        showToast('进入计划管理页面成功');
-                        // 这里可以跳转到管理页面
-                        // window.location.href = `./manage-plan.html?id=${planId}`;
-                    } catch (error) {
-                        console.error('管理计划失败:', error);
-                    }
+                    window.location.href = `./manage-plan.html?id=${planId}`;
                 });
             });
 

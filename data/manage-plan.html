@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>管理任务</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box;font-family:"Microsoft Yahei",sans-serif}
+    body{background:#f5f7fa;padding:24px}
+    .container{max-width:720px;margin:0 auto;background:#fff;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.05);padding:24px}
+    h1{font-size:20px;margin-bottom:16px}
+    .form-item{margin-bottom:16px}
+    label{display:block;margin-bottom:8px;color:#1d2129}
+    input[type="text"],input[type="datetime-local"],select,textarea{width:100%;padding:10px 12px;border:1px solid #e5e6eb;border-radius:4px;font-size:14px}
+    textarea{min-height:120px;resize:vertical}
+    .actions{display:flex;gap:12px;margin-top:16px}
+    .btn{padding:10px 16px;border:none;border-radius:4px;cursor:pointer;font-size:14px}
+    .btn-primary{background:#2f54eb;color:#fff}
+    .btn-default{background:#e5e6eb;color:#333}
+    .toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);padding:10px 20px;border-radius:4px;color:#fff;font-size:14px;z-index:9999;opacity:0;transition:opacity .3s}
+    .toast-success{background:#52c41a}
+    .toast-error{background:#ff4d4f}
+    .toast-show{opacity:1}
+    .file-list{margin-top:8px;font-size:13px;color:#86909c}
+    .file-item{display:inline-block;background:#f2f3f5;padding:2px 8px;border-radius:2px;margin-right:8px;margin-bottom:4px}
+  </style>
+  <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const planId = urlParams.get('id');
+
+    function showToast(message, ok=true){
+      const el = document.getElementById('toast');
+      el.textContent = message;
+      el.className = 'toast ' + (ok?'toast-success':'toast-error') + ' toast-show';
+      setTimeout(()=>{ el.className='toast'; }, 3000);
+    }
+
+    function formatDatetimeLocalToSql(dt){
+      if(!dt) return '';
+      dt = dt.replace('T',' ');
+      if(dt.length===16) dt += ':00';
+      return dt;
+    }
+
+    async function loadPlanData() {
+      if(!planId) {
+        showToast('无效的计划ID', false);
+        return;
+      }
+      try {
+        const res = await fetch(`./api/purchase-plans/${planId}`);
+        const resp = await res.json();
+        if(resp.success && resp.data) {
+          const d = resp.data;
+          document.getElementById('planname').value = d.planname || '';
+          document.getElementById('content').value = d.content || '';
+          if(d.deadline) {
+            document.getElementById('deadline').value = d.deadline.replace(' ', 'T').substring(0, 16);
+          }
+          document.getElementById('status').value = d.status || 'unfinished';
+          
+          if(d.filepth) {
+            const files = d.filepth.split(';');
+            const listEl = document.getElementById('existingFiles');
+            listEl.innerHTML = files.map(f => `<span class="file-item">${f}</span>`).join('');
+          }
+        } else {
+          showToast(resp.message || '加载数据失败', false);
+        }
+      } catch(e) {
+        showToast('请求异常', false);
+      }
+    }
+
+    async function onSubmit(){
+      const planname = document.getElementById('planname').value.trim();
+      const content = document.getElementById('content').value.trim();
+      const deadline = formatDatetimeLocalToSql(document.getElementById('deadline').value);
+      const status = document.getElementById('status').value;
+      if(!planname){ showToast('请填写计划名称', false); return; }
+      try{
+        const btn = document.getElementById('saveBtn');
+        btn.disabled = true;
+        const fd = new FormData();
+        fd.append('planname', planname);
+        fd.append('content', content);
+        fd.append('deadline', deadline);
+        fd.append('status', status);
+        const files = document.getElementById('attachments').files;
+        for(let i=0;i<files.length;i++){ fd.append('files', files[i], files[i].name); }
+        
+        // 使用 PUT 方法
+        const res = await fetch(`./api/purchase-plans/${planId}`, { method:'PUT', body: fd });
+        const resp = await res.json().catch(()=>({}));
+        if(!res.ok){ throw new Error(resp.message||'请求失败'); }
+        if(resp && resp.success){
+          showToast('修改成功');
+          setTimeout(()=>{ window.location.href = './table.html'; }, 800);
+        }else{
+          showToast(resp && resp.message ? resp.message : '修改失败', false);
+        }
+      }catch(e){
+        showToast(e.message||'请求异常', false);
+      }
+      finally{
+        document.getElementById('saveBtn').disabled = false;
+      }
+    }
+
+    function onCancel(){
+      window.location.href = './table.html';
+    }
+
+    window.onload = loadPlanData;
+  </script>
+</head>
+<body>
+  <div class="container">
+    <h1>管理任务</h1>
+    <div class="form-item">
+      <label for="planname">计划名称</label>
+      <input id="planname" type="text" placeholder="请输入计划名称">
+    </div>
+    <div class="form-item">
+      <label for="content">计划内容</label>
+      <textarea id="content" placeholder="请输入计划内容"></textarea>
+    </div>
+    <div class="form-item">
+      <label for="deadline">截止时间</label>
+      <input id="deadline" type="datetime-local">
+    </div>
+    <div class="form-item">
+      <label for="status">状态</label>
+      <select id="status">
+        <option value="unfinished">未完成</option>
+        <option value="finished">已完成</option>
+        <option value="cancelled">已取消</option>
+        <option value="delayed">已延期</option>
+      </select>
+    </div>
+    <div class="form-item">
+      <label>已有附件</label>
+      <div id="existingFiles" class="file-list">无</div>
+    </div>
+    <div class="form-item">
+      <label for="attachments">补充添加附件</label>
+      <input id="attachments" type="file" multiple accept=".doc,.docx,.pdf,.jpg,.jpeg,.png">
+    </div>
+    <div class="actions">
+      <button id="saveBtn" class="btn btn-primary" onclick="onSubmit()">保存修改</button>
+      <button class="btn btn-default" onclick="onCancel()">取消</button>
+    </div>
+  </div>
+  <div id="toast" class="toast"></div>
+</body>
+</html>

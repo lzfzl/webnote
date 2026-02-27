@@ -93,9 +93,9 @@ void webserver::dealWithConn(){
 }
 }
 
-void webserver::dealWith(int clientfd){
+void webserver::dealWith(int clientfd,int RorW){
     timedeal.adjustConn(conn+clientfd);
-    tp.addTask(conn+clientfd,0);
+    tp.addTask(conn+clientfd,RorW);
     
 }
 
@@ -116,9 +116,13 @@ void webserver::eventAccept(){
                 ssize_t s = read(m_timerfd, &exp, sizeof(exp));
                 timedeal.clear();
             }
-            else if(events[i].events & (EPOLLIN|EPOLLOUT)){
+            else if(events[i].events & EPOLLIN){
                 if(fd!=conn[fd].m_clifd)continue;
-                dealWith(fd);
+                dealWith(fd,0);
+            }
+            else if(events[i].events & EPOLLOUT){
+                if(fd!=conn[fd].m_clifd)continue;
+                dealWith(fd,1);
             }
         }
     }
