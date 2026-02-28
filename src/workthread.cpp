@@ -18,7 +18,7 @@ threadpoll::threadpoll(sqlPools *sqlpool,int thread_num)
                     if(m_stop && task.empty()) return;
                     cur_hh = task.front();
                     denug.emplace_back(cur_hh);
-                    if(!cur_hh->sqlconn)cur_hh->sqlconn = m_sqlpool->getaConnect();
+                    if(cur_hh->RorW==0 && !cur_hh->sqlconn) cur_hh->sqlconn = m_sqlpool->getaConnect();
                     task.pop();
                 }
                 if(cur_hh->RorW==0){
@@ -31,7 +31,7 @@ threadpoll::threadpoll(sqlPools *sqlpool,int thread_num)
                         cur_hh->close_conn();
                     }
                 }
-                if(!cur_hh->m_keep_alive){
+                if(!cur_hh->m_keep_alive && cur_hh->sqlconn){
                     m_sqlpool->releaseConnect(cur_hh->sqlconn);
                     cur_hh->sqlconn = nullptr;
                 }

@@ -12,7 +12,7 @@ void timenode::remove(){
     int fd = data->m_clifd;
     epoll_ctl(data->m_epollfd, EPOLL_CTL_DEL, fd, 0);
     close(fd);
-    data->init(0,0);
+    data->init(-1,-1,false);
 }
 timer::timer(){
     dummy = new timenode(nullptr);

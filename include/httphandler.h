@@ -73,7 +73,7 @@ public:
     int m_tmp_fd = -1;
     std::string m_tmp_path;
     char *get_line();
-    void init(int clientfd,int epollfd);
+    void init(int clientfd,int epollfd,bool ka);
     http_handler(int clientfd,int epollfd);
     http_handler();
     bool read_once();
@@ -85,7 +85,7 @@ public:
     HTTP_CODE do_process();
     HTTP_CODE parse_body(char *text);
     std::string url_decode(const std::string& encoded);
-    sql::Connection* sqlconn;
+    sql::Connection* sqlconn = nullptr;
     sql::ResultSet* sqlres = nullptr;
     void close_map();
     bool add_response(const char* fmt,...);

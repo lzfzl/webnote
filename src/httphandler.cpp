@@ -10,7 +10,7 @@
 char* http_handler::get_line(){
     return m_read_buf + m_start_line; 
 }
-void http_handler::init(int clientfd = -100,int epollfd = -100){
+void http_handler::init(int clientfd = -100,int epollfd = -100,bool ka = false){
     if(m_tmp_fd!=-1){
         close(m_tmp_fd);
         m_tmp_fd = -1;
@@ -30,7 +30,7 @@ void http_handler::init(int clientfd = -100,int epollfd = -100){
     m_check_state = CKECK_STATE_REQUESTLINE;
     m_start_line = 0;
     m_content_length = 0;
-    m_keep_alive = false;
+    m_keep_alive = ka;
     m_host.clear();
     m_real_file = "";
     m_file_stat ={}; 
@@ -1268,7 +1268,7 @@ bool http_handler::write(){
         ev.events = EPOLLIN|EPOLLET;
         ev.data.fd = m_clifd;
         epoll_ctl(m_epollfd,EPOLL_CTL_MOD,m_clifd,&ev);
-        init(m_clifd,m_epollfd);
+        init(m_clifd,m_epollfd,m_keep_alive);
         return true;
     }
     else{
@@ -1305,7 +1305,7 @@ bool http_handler::write(){
                 ev.events = EPOLLIN|EPOLLET;
                 ev.data.fd = m_clifd;
                 epoll_ctl(m_epollfd,EPOLL_CTL_MOD,m_clifd,&ev);
-                init(m_clifd,m_epollfd);
+                init(m_clifd,m_epollfd,m_keep_alive);
                 return true;
             }
             else{

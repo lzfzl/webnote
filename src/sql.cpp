@@ -26,10 +26,10 @@ sql::Connection* sqlPools::getaConnect(){
     return conn;
 }
     void sqlPools::releaseConnect(sql::Connection* conn){
+        if(!conn) return;
         std::unique_lock<std::mutex> lock(poolMutex_);
         connectionPool_.push(conn);
         poolCondition_.notify_one();
-
     }
     sqlPools::~sqlPools(){
         while (!connectionPool_.empty())

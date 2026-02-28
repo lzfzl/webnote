@@ -86,7 +86,7 @@ void webserver::dealWithConn(){
             close(clientfd);
         }
         else{
-            conn[clientfd].init(clientfd,epollfd);
+            conn[clientfd].init(clientfd,epollfd,true);
             timedeal.addConn(conn+clientfd);
             tp.addTask(conn+clientfd,0); 
         }
