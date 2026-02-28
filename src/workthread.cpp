@@ -31,8 +31,11 @@ threadpoll::threadpoll(sqlPools *sqlpool,int thread_num)
                         cur_hh->close_conn();
                     }
                 }
-                m_sqlpool->releaseConnect(cur_hh->sqlconn);
-                cur_hh->sqlconn = nullptr;
+                if(!cur_hh->m_keep_alive){
+                    m_sqlpool->releaseConnect(cur_hh->sqlconn);
+                    cur_hh->sqlconn = nullptr;
+                }
+
             }
         });
     }

@@ -650,6 +650,9 @@ http_handler::HTTP_CODE http_handler::do_process(){
         }
         return DATA;
     }
+    else if(url =="/api/purchase-plans/create"){
+        return CREATEPLAN;
+    }
     else if(url.size() > std::string("/api/purchase-plans/").size() 
             && url.compare(0, std::string("/api/purchase-plans/").size(), "/api/purchase-plans/") == 0){
         const std::string prefix = "/api/purchase-plans/";
